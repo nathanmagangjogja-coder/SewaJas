@@ -252,7 +252,8 @@
             <h3 class="font-playfair font-semibold" style="color:var(--text-dark)">Transaksi Terbaru</h3>
             <a href="{{ route('rentals.index') }}" class="text-xs" style="color:var(--primary)">Lihat Semua →</a>
         </div>
-        <table class="w-full elegant-table">
+        <div class="overflow-x-auto overflow-y-auto overscroll-contain" style="max-height:420px; -webkit-overflow-scrolling:touch;">
+        <table class="w-full elegant-table" style="min-width:640px">
             <thead>
                 <tr>
                     <th class="text-left">Invoice</th>
@@ -291,6 +292,7 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 
     {{-- Quick Actions --}}

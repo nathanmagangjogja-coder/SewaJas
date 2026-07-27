@@ -278,8 +278,8 @@
                         Lihat Semua →
                     </a>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full elegant-table">
+                <div class="overflow-x-auto overflow-y-auto overscroll-contain" style="max-height:420px; -webkit-overflow-scrolling:touch;">
+                    <table class="w-full elegant-table" style="min-width:640px">
                         <thead>
                             <tr>
                                 <th class="text-left">Customer</th>
@@ -352,8 +352,8 @@
                 <a href="{{ route('branches.index') }}" class="text-xs font-medium" style="color: var(--primary)">Lihat
                     Semua →</a>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full elegant-table">
+            <div class="overflow-x-auto overscroll-contain" style="-webkit-overflow-scrolling:touch;">
+                <table class="w-full elegant-table" style="min-width:560px">
                     <thead>
                         <tr>
                             <th class="text-left">#</th>

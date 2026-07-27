@@ -231,6 +231,7 @@
             <div class="p-4 border-b" style="border-color:var(--border)">
                 <h3 class="font-playfair font-semibold text-sm" style="color:var(--text-dark)">Transaksi Saya Hari Ini</h3>
             </div>
+            <div class="overflow-y-auto overscroll-contain" style="max-height:360px; -webkit-overflow-scrolling:touch;">
             @forelse($stats['my_transactions'] as $r)
             <a href="{{ route('rentals.show', $r) }}"
                class="flex items-center gap-3 p-3 border-b hover:bg-[var(--bg-soft)] transition-colors" style="border-color:var(--border)">
@@ -253,6 +254,7 @@
                 </a>
             </div>
             @endforelse
+            </div>
         </div>
 
         {{-- Aktivitas Terbaru Cabang --}}
@@ -261,6 +263,7 @@
                 <h3 class="font-playfair font-semibold text-sm" style="color:var(--text-dark)">Aktivitas Terbaru Cabang</h3>
                 <a href="{{ route('rentals.index') }}" class="text-xs font-semibold" style="color:var(--primary)">Lihat Semua</a>
             </div>
+            <div class="overflow-y-auto overscroll-contain" style="max-height:360px; -webkit-overflow-scrolling:touch;">
             @forelse($stats['recent_rentals'] as $r)
             <a href="{{ route('rentals.show', $r) }}"
                class="flex items-center gap-3 p-3 border-b hover:bg-[var(--bg-soft)] transition-colors" style="border-color:var(--border)">
@@ -279,6 +282,7 @@
                 <p class="text-sm" style="color:var(--text-soft)">Belum ada aktivitas</p>
             </div>
             @endforelse
+            </div>
         </div>
     </div>
 
