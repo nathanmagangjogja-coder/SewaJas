@@ -3,7 +3,7 @@
     <footer class="mt-10 pt-6 pb-4 border-t" style="border-color: var(--border)">
         <div class="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs" style="color: var(--text-soft)">
             <div class="flex items-center gap-1.5">
-                <span class="font-playfair font-semibold" style="color: var(--text-dark)">{{ ( 'MonsieurJas') }}</span>
+                <span class="font-playfair font-semibold" style="color: var(--text-dark)">{{ ( 'SewaJas') }}</span>
                 <span>&copy; {{ date('Y') }} — Premium Suit Rental System</span>
             </div>
 
@@ -109,13 +109,13 @@
                      style="background: linear-gradient(135deg, var(--primary), var(--primary-dark))">
                     <i data-lucide="crown" class="w-7 h-7" style="color:#fff"></i>
                 </div>
-                <h4 class="font-playfair font-bold text-lg" style="color: var(--text-dark)">{{ ( 'MonsieurJas') }}</h4>
+                <h4 class="font-playfair font-bold text-lg" style="color: var(--text-dark)">{{ ( 'SewaJas') }}</h4>
                 <p class="text-xs mt-1" style="color: var(--text-soft)">Premium Suit Rental System</p>
                 <p class="text-xs mt-3" style="color: var(--text-soft)">Versi {{ config('app.version', '1.0.0') }}</p>
             </div>
             <div class="mt-4 pt-4 border-t text-xs space-y-1.5" style="border-color: var(--border); color: var(--text-soft)">
                 <p>Sistem manajemen rental jas multi-cabang — penyewaan, laundry, customer, dan laporan dalam satu platform.</p>
-                <p class="pt-2">&copy; {{ date('Y') }} {{ ( 'MonsieurJas') }}. All rights reserved.</p>
+                <p class="pt-2">&copy; {{ date('Y') }} {{ ( 'SewaJas') }}. All rights reserved.</p>
             </div>
         </div>
     </div>

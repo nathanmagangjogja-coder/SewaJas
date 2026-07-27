@@ -25,10 +25,10 @@
              class="overflow-hidden">
             <p class="font-playfair font-bold text-base leading-tight whitespace-nowrap tracking-wide"
                style="color:var(--sidebar-text);">
-                MonsieurJas
+                SewaJas
             </p>
             <p class="text-[10px] whitespace-nowrap uppercase tracking-widest"
-               style="color:var(--sidebar-accent); letter-spacing:0.15em">Premium</p>
+               style="color:var(--sidebar-accent); letter-spacing:0.15em">System</p>
         </div>
     </div>
 

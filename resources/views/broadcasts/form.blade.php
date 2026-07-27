@@ -94,7 +94,7 @@
                     @php
                         $oldTemplates = old('message_templates', $broadcast->message_templates ?? [
                             '{greeting} {name}! Jas {product} Anda harus dikembalikan {days_left} hari lagi. Ada pertanyaan? Hubungi kami 😊',
-                            '{greeting} {name}! Sudah {total_rentals}x sewa di MonsieurJas. Terima kasih kepercayaannya! 🙏',
+                            '{greeting} {name}! Sudah {total_rentals}x sewa di SewaJas. Terima kasih kepercayaannya! 🙏',
                         ]);
                     @endphp
                     @foreach($oldTemplates as $index => $template)
