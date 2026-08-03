@@ -60,7 +60,6 @@
     .footer-table td { vertical-align: bottom; padding-top: 16px; }
     .notes-title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #6B6B6B; margin-bottom: 4px; }
     .notes-text { font-size: 9px; color: #6B6B6B; line-height: 1.6; }
-    .signature-box { border-bottom: 1px solid #2B2B2B; height: 50px; margin-bottom: 6px; }
     .signature-label { font-size: 9px; color: #6B6B6B; text-align: center; }
     .qr-label { font-size: 8px; color: #6B6B6B; margin-top: 4px; text-align: center; }
 
@@ -129,6 +128,14 @@
                 @if($rental->customer->address)
                 <div class="info-label">Alamat</div>
                 <div class="info-value">{{ $rental->customer->address }}</div>
+                @endif
+                @if($rental->guarantees->count() > 0)
+                <div class="info-label">Jenis Jaminan</div>
+                <div class="info-value">
+                    @foreach($rental->guarantees as $g)
+                        {{ $g->type_label }}@if($g->deposit_amount > 0) (Rp {{ number_format($g->deposit_amount, 0, ',', '.') }})@endif{{ !$loop->last ? ', ' : '' }}
+                    @endforeach
+                </div>
                 @endif
             </td>
             <td class="info-box">
@@ -208,15 +215,13 @@
                         <td class="value" style="color: #E74C3C; text-align: right;">+Rp {{ number_format($rental->late_fee, 0, ',', '.') }}</td>
                     </tr>
                     @endif
-                    {{-- BARU: Denda Barang Rusak/Hilang --}}
-                    @if($rental->total_damage_fee > 0)
+                                        @if($rental->total_damage_fee > 0)
                     <tr class="total-row">
                         <td class="label">Denda Rusak/Hilang</td>
                         <td class="value" style="color: #E74C3C; text-align: right;">+Rp {{ number_format($rental->total_damage_fee, 0, ',', '.') }}</td>
                     </tr>
                     @endif
-                    {{-- BARU: Diskon Manual (dari proses retur) --}}
-                    @if($rental->has_manual_discount)
+                                        @if($rental->has_manual_discount)
                     <tr class="total-row">
                         <td class="label">Diskon Manual{{ $rental->discount_name ? " ({$rental->discount_name})" : '' }}</td>
                         <td class="value" style="color: #E74C3C; text-align: right;">-Rp {{ number_format($rental->discount, 0, ',', '.') }}</td>
@@ -243,45 +248,6 @@
         </tr>
     </table>
 
-    <!-- Guarantee -->
-    @if($rental->guarantees->count() > 0)
-    <div class="guarantee-box">
-        <div class="guarantee-title">Informasi Jaminan</div>
-        <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-                @foreach($rental->guarantees as $g)
-                <td style="padding-right: 24px; vertical-align: top;">
-                    <div class="g-label">Jenis Jaminan</div>
-                    <div class="g-value">{{ $g->type_label }}</div>
-                </td>
-                @if($g->id_number)
-                <td style="padding-right: 24px; vertical-align: top;">
-                    <div class="g-label">Nomor</div>
-                    <div class="g-value">{{ $g->id_number }}</div>
-                </td>
-                @endif
-                @if($g->id_name)
-                <td style="padding-right: 24px; vertical-align: top;">
-                    <div class="g-label">Atas Nama</div>
-                    <div class="g-value">{{ $g->id_name }}</div>
-                </td>
-                @endif
-                @if($g->deposit_amount > 0)
-                <td style="padding-right: 24px; vertical-align: top;">
-                    <div class="g-label">Nominal Deposit</div>
-                    <div class="g-value">Rp {{ number_format($g->deposit_amount, 0, ',', '.') }}</div>
-                </td>
-                @endif
-                <td style="padding-right: 24px; vertical-align: top;">
-                    <div class="g-label">Status</div>
-                    <div class="g-value">{{ match($g->status) { 'held' => 'Ditahan', 'returned' => 'Dikembalikan', 'forfeited' => 'Disita', default => $g->status } }}</div>
-                </td>
-                @endforeach
-            </tr>
-        </table>
-    </div>
-    @endif
-
     <!-- Notes -->
     @if($rental->notes)
     <div style="background: #FFFCF5; border: 1px solid #F6E4B0; border-radius: 6px; padding: 10px; margin-bottom: 16px;">
@@ -302,17 +268,13 @@
                     4. Jaminan dikembalikan setelah barang kembali dalam kondisi baik.
                 </div>
             </td>
-            @if($rental->qr_code)
-            <td style="width: 90px; text-align: center; vertical-align: bottom;">
-                <img src="{{ storage_path('app/public/' . $rental->qr_code) }}" width="70" height="70">
+            <td style="width: 160px; text-align: center; vertical-align: bottom;">
+                @if($rental->qr_code)
+                <img src="{{ storage_path('app/public/' . $rental->qr_code) }}" width="90" height="90">
                 <div class="qr-label">Scan untuk verifikasi</div>
-            </td>
-            @endif
-            <td style="width: 150px; text-align: center; vertical-align: bottom;">
-                <div class="signature-box"></div>
-                <div class="signature-label">
-                    ( {{ $rental->createdBy->name }} )<br>
-                    Petugas / Admin
+                @endif
+                <div class="signature-label" style="margin-top: 8px;">
+                    Dilayani oleh: <strong>{{ $rental->createdBy->name }}</strong>
                 </div>
             </td>
         </tr>

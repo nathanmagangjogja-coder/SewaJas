@@ -70,7 +70,8 @@ class RentalController extends Controller
                 'phone'         => $c->phone,
                 'photo'         => $c->photo_url,
                 'nik'           => $c->id_number,
-                'id_photo'      => $c->id_photo ? asset('storage/' . $c->id_photo) : null,
+                'id_photo'      => $c->is_id_photo_reusable ? asset('storage/' . $c->id_photo) : null,
+                'id_photo_expired' => (bool) ($c->id_photo && !$c->is_id_photo_reusable),
                 'notes'         => $c->notes,
                 // Dipakai frontend untuk membedakan pesan "customer baru" (belum
                 // pernah menyewa) vs "customer lama" yang kebetulan belum punya
@@ -126,10 +127,12 @@ class RentalController extends Controller
         $guaranteeType = $request->input('guarantee.type');
         $photoRequired = in_array($guaranteeType, ['ktp', 'sim'], true);
 
-        if ($photoRequired && !$customer->id_photo && !$request->hasFile('id_photo')) {
-            return back()->withInput()->withErrors([
-                'id_photo' => 'Customer ini belum memiliki foto jaminan tersimpan. Foto wajib diunggah untuk penyewaan pertama dengan jaminan ' . strtoupper($guaranteeType) . '.',
-            ]);
+        if ($photoRequired && !$customer->is_id_photo_reusable && !$request->hasFile('id_photo')) {
+            $message = $customer->id_photo
+                ? 'Masa berlaku pakai-ulang foto jaminan customer ini sudah habis. Foto wajib diunggah ulang untuk transaksi ini.'
+                : 'Customer ini belum memiliki foto jaminan tersimpan. Foto wajib diunggah untuk penyewaan pertama dengan jaminan ' . strtoupper($guaranteeType) . '.';
+
+            return back()->withInput()->withErrors(['id_photo' => $message]);
         }
 
         if ($request->filled('id_number')) {
@@ -156,6 +159,10 @@ class RentalController extends Controller
             if ($request->hasFile('id_photo')) {
                 $newIdPhotoPath = $request->file('id_photo')->store('customers/id-photos', 'public');
                 $customer->id_photo = $newIdPhotoPath;
+                $customer->id_photo_type = $request->input('guarantee.type');
+                $customer->id_photo_reusable_until = null;
+            } elseif ($customer->id_photo && !$customer->id_photo_type && $request->filled('guarantee.type')) {
+                $customer->id_photo_type = $request->input('guarantee.type');
             }
             if ($request->filled('id_number')) {
                 $customer->id_number = $request->id_number;
@@ -211,9 +218,57 @@ class RentalController extends Controller
             // Nomor rekening: wajib HANYA untuk transfer (QRIS tidak butuh nomor rekening).
             'account_number'   => 'nullable|required_if:method,transfer|string|max:50',
             'reference_number' => 'nullable|string|max:100',
+
+            // Sub-form "Lainnya": kartu kredit/debit ATAU jaminan barang.
+            'otherOptions'          => 'nullable|required_if:method,other|in:card,guarantee',
+            'card_type'             => 'nullable|required_if:otherOptions,card|in:credit,debit',
+            'card_bank'             => 'nullable|required_if:otherOptions,card|string|max:50',
+            'card_reference'        => 'nullable|required_if:otherOptions,card|string|max:100',
+            'guarantee_name'        => 'nullable|required_if:otherOptions,guarantee|string|max:150',
+            'guarantee_brand'       => 'nullable|string|max:100',
+            'guarantee_condition'   => 'nullable|string|max:50',
+            'guarantee_value'       => 'nullable|numeric|min:0',
+            'guarantee_serial'      => 'nullable|string|max:100',
+            'guarantee_note'        => 'nullable|string|max:1000',
+            'guarantee_photos'      => 'nullable|array|max:5',
+            'guarantee_photos.*'    => 'image|max:4096',
         ]);
 
-        $payment = $this->rentalService->processPayment($rental, $request->all());
+        $data = $request->all();
+
+        // Rakit detail sub-form "Lainnya" jadi satu struktur JSON — sebelumnya
+        // field-field ini dikumpulkan form tapi tidak pernah tersimpan sama
+        // sekali ke database (hilang begitu submit).
+        if ($request->input('method') === 'other') {
+            $data['other_type'] = $request->input('otherOptions');
+
+            if ($data['other_type'] === 'card') {
+                $data['other_payment_details'] = [
+                    'card_type' => $request->input('card_type'),
+                    'card_bank' => $request->input('card_bank'),
+                    'card_reference' => $request->input('card_reference'),
+                ];
+            } elseif ($data['other_type'] === 'guarantee') {
+                $photoPaths = [];
+                if ($request->hasFile('guarantee_photos')) {
+                    foreach ($request->file('guarantee_photos') as $photo) {
+                        $photoPaths[] = $photo->store('payments/guarantee-items', 'public');
+                    }
+                }
+
+                $data['other_payment_details'] = [
+                    'guarantee_name'      => $request->input('guarantee_name'),
+                    'guarantee_brand'     => $request->input('guarantee_brand'),
+                    'guarantee_condition' => $request->input('guarantee_condition'),
+                    'guarantee_value'     => $request->input('guarantee_value'),
+                    'guarantee_serial'    => $request->input('guarantee_serial'),
+                    'guarantee_note'      => $request->input('guarantee_note'),
+                    'guarantee_photos'    => $photoPaths,
+                ];
+            }
+        }
+
+        $payment = $this->rentalService->processPayment($rental, $data);
 
         return back()->with('success', "Pembayaran {$payment->payment_number} berhasil dicatat!");
     }
@@ -372,23 +427,86 @@ class RentalController extends Controller
     {
         $this->authorize('cancel', $rental);
 
-        if (in_array($rental->rental_status, ['returned', 'cancelled'])) {
-            return back()->with('error', 'Penyewaan ini tidak dapat dibatalkan.');
+        if (in_array($rental->rental_status, ['returned', 'cancelled', 'menunggu_laundry', 'dalam_laundry', 'siap_disewakan'])) {
+            return back()->with('error', 'Penyewaan ini tidak dapat dibatalkan karena barang sudah/sedang diproses pengembalian.');
+        }
+
+        // Sewa yang sudah AKTIF/OVERDUE (sudah lunas & barang di tangan customer)
+        // TIDAK LAGI bisa dibatalkan — satu-satunya jalan keluar adalah proses
+        // retur normal ("Proses Pengembalian"). Dicek di server, bukan cuma
+        // disembunyikan tombolnya, supaya tidak bisa dilewati lewat request langsung.
+        if (in_array($rental->rental_status, ['active', 'overdue'])) {
+            return back()->with('error', 'Penyewaan yang sudah aktif (sudah dibayar & barang di tangan customer) tidak dapat dibatalkan. Gunakan menu "Proses Pengembalian" untuk mengakhiri sewa ini.');
         }
 
         $request->validate([
             'reason' => 'nullable|string|max:255',
         ]);
 
-        // NOTE: asumsi kolom 'cancel_reason', 'cancelled_at', 'cancelled_by' BELUM
-        // tentu ada di tabel rentals. Kalau migration belum punya kolom ini,
-        // hapus baris terkait di bawah atau tambahkan migration-nya dulu.
-        $rental->update([
-            'rental_status' => 'cancelled',
-            'cancel_reason' => $request->reason,
-            'cancelled_at'  => now(),
-            'cancelled_by'  => Auth::id(),
-        ]);
+        DB::transaction(function () use ($rental, $request) {
+            foreach ($rental->items as $item) {
+                if ($item->product_id) {
+                    $product = Product::find($item->product_id);
+                    if ($product) {
+                        $product->increment('stock_available', $item->quantity);
+                        $product->refresh();
+                        if ($product->stock_available > 0 && $product->status === 'rented') {
+                            $product->update(['status' => 'available']);
+                        }
+                    }
+                }
+            }
+
+            $rental->update([
+                'rental_status'      => 'cancelled',
+                'cancel_reason'      => $request->reason,
+                'cancelled_at'       => now(),
+                'cancelled_by'       => Auth::id(),
+                'cancel_laundry_fee' => 0,
+                'total_amount'       => 0,
+                // FIX: sebelumnya payment_status tidak disentuh sama sekali, jadi
+                // kalau kebetulan sebelumnya 'paid'/'partial', badge akan tetap
+                // menampilkan itu berdampingan dengan "DIBATALKAN" (membingungkan,
+                // seolah tagihan Rp 0 sudah "lunas" padahal customer belum pernah
+                // bayar). Dipaksa 'unpaid' karena rental hanya bisa sampai sini
+                // kalau statusnya masih 'waiting' (belum pernah lunas penuh).
+                'payment_status'     => 'unpaid',
+            ]);
+
+            // ── Aturan reuse KTP setelah pembatalan sebelum aktif ───────────────
+            // Customer masih punya sewa AKTIF LAIN (KTP fisik masih tertahan di
+            // toko) -> foto KTP tersimpan boleh dipakai ulang, tapi cuma 30 menit.
+            // Tidak ada sewa aktif lain sama sekali -> reuse langsung dimatikan,
+            // wajib scan/upload ulang di transaksi berikutnya.
+            //
+            // "Aktif" di sini TIDAK sama persis dengan rental_status='active':
+            //  - status 'active'                              -> selalu dihitung aktif.
+            //  - status 'overdue' TAPI denda belum dibayar     -> GREY ZONE, dianggap
+            //    TIDAK aktif (barang belum tentu akan diambil lagi, KTP tidak
+            //    otomatis dianggap "aman ditahan").
+            //  - status 'overdue' DAN denda sudah lunas        -> dianggap aktif
+            //    (barang masih di tangan customer / belum diretur, tapi urusan
+            //    uangnya sudah beres, jadi KTP tetap sah ditahan sebagai jaminan).
+            $customer = $rental->customer;
+            if ($customer) {
+                $hasOtherActiveRental = $customer->rentals()
+                    ->where('id', '!=', $rental->id)
+                    ->where(function ($q) {
+                        $q->where('rental_status', 'active')
+                          ->orWhere(function ($q2) {
+                              $q2->where('rental_status', 'overdue')
+                                 ->where('payment_status', 'paid');
+                          });
+                    })
+                    ->exists();
+
+                $customer->update([
+                    'id_photo_reusable_until' => $hasOtherActiveRental
+                        ? now()->addMinutes(30)
+                        : now()->subSecond(),
+                ]);
+            }
+        });
 
         return redirect()
             ->route('rentals.show', $rental)
@@ -468,6 +586,19 @@ class RentalController extends Controller
 
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('rentals.pdf', compact('rental'));
         return $pdf->stream("invoice-{$rental->invoice_number}.pdf");
+    }
+
+    public function qrisDemo(Rental $rental)
+    {
+        return view('rentals.qris-demo', compact('rental'));
+    }
+
+    public function qrisDemoQr(Rental $rental)
+    {
+        $url = route('rentals.qris-demo', $rental);
+        $svg = QrCode::format('svg')->size(220)->margin(1)->generate($url);
+
+        return response($svg, 200)->header('Content-Type', 'image/svg+xml');
     }
 
     // REFACTOR: buildWhatsAppMessage()/buildReminderMessage() dan logika

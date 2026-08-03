@@ -29,6 +29,16 @@
             </button>
             @endif
 
+            @can('cancel', $rental)
+            @if($rental->rental_status === 'waiting')
+            <button @click="openCancel()" class="btn-secondary text-sm"
+                    style="color: #DC2626; border-color: #FCA5A5">
+                <i data-lucide="x-circle" class="w-4 h-4"></i>
+                Batalkan
+            </button>
+            @endif
+            @endcan
+
             @if(in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status === 'paid')
             <button @click="openReturn()" class="btn-primary text-sm"
                     style="background: linear-gradient(135deg, #10B981, #059669); box-shadow: 0 2px 8px rgba(16,185,129,0.3)">
@@ -55,11 +65,11 @@
             <i data-lucide="file-down" class="w-4 h-4"></i>
             PDF
         </a>
-        <a href="{{ route('rentals.whatsapp', $rental) }}" target="_blank"
+        <button type="button" @click="openWaPreview()"
            class="btn-secondary text-sm justify-center sm:justify-start" style="color: #25D366; border-color: #25D366">
             <i data-lucide="message-circle" class="w-4 h-4"></i>
             WA
-        </a>
+        </button>
         @if(in_array($rental->rental_status, ['active', 'overdue']))
         <a href="{{ route('rentals.reminder', $rental) }}" target="_blank"
            class="btn-secondary text-sm justify-center sm:justify-start col-span-2 sm:col-span-1" style="color: #F59E0B; border-color: #F59E0B">
@@ -76,6 +86,47 @@
         <div>
             <p class="font-semibold text-sm" style="color: #C0392B">Penyewaan Melewati Jatuh Tempo!</p>
             <p class="text-sm" style="color: #E74C3C">Sudah <strong>{{ $rental->overdue_days }} hari</strong> terlambat dari {{ $rental->return_due_date->format('d M Y') }}</p>
+        </div>
+    </div>
+    {{-- BARU: alert jatuh tempo (hari ini/besok/mendekati) — pakai accessor
+         $rental->due_alert yang sama dengan yang sudah dipakai di daftar
+         penyewaan, supaya konsisten dan sekarang juga terlihat di halaman
+         detail (sebelumnya cuma muncul kalau sudah overdue). --}}
+    @elseif($rental->due_alert)
+    <div class="flex items-center gap-3 p-4 rounded-xl border"
+         style="background: {{ $rental->due_alert['level'] === 'today' ? '#FFF7ED' : '#FFFBEB' }};
+                border-color: {{ $rental->due_alert['level'] === 'today' ? '#FED7AA' : '#FDE68A' }};">
+        <i data-lucide="{{ $rental->due_alert['level'] === 'today' ? 'alarm-clock' : 'clock-alert' }}"
+           class="w-5 h-5 flex-shrink-0"
+           style="color: {{ $rental->due_alert['level'] === 'today' ? '#C2410C' : '#B45309' }}"></i>
+        <div>
+            <p class="font-semibold text-sm"
+               style="color: {{ $rental->due_alert['level'] === 'today' ? '#C2410C' : '#B45309' }}">
+                {{ $rental->due_alert['label'] }}
+            </p>
+            <p class="text-sm" style="color: {{ $rental->due_alert['level'] === 'today' ? '#EA580C' : '#D97706' }}">
+                Batas pengembalian: {{ $rental->return_due_date->format('d M Y') }}
+            </p>
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== SEBAB PEMBATALAN (supaya "Rp 0 / Belum Bayar + DIBATALKAN" tidak bikin bingung) ===== --}}
+    @if($rental->rental_status === 'cancelled')
+    <div class="rounded-xl p-4 flex items-start gap-2.5" style="background: #FEF2F2; border: 1px solid #FECACA">
+        <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5" style="color: #DC2626"></i>
+        <div class="text-xs" style="color: #7F1D1D">
+            <p class="font-semibold mb-0.5">
+                Dibatalkan{{ $rental->cancelled_at ? ' pada ' . $rental->cancelled_at->format('d M Y, H:i') : '' }}
+                @if($rental->cancelledBy?->name)
+                    oleh {{ $rental->cancelledBy->name }}
+                @endif
+            </p>
+            <p>Alasan: {{ $rental->cancel_reason ?: 'Tidak diisi oleh admin.' }}</p>
+            <p class="mt-1">
+                Dibatalkan sebelum aktif — tagihan otomatis menjadi <strong>Rp 0</strong> dan stok barang
+                langsung dikembalikan ke inventory tanpa proses laundry (barang belum sempat dipakai).
+            </p>
         </div>
     </div>
     @endif
@@ -144,20 +195,14 @@
                                 {{ $rental->package->name }}
                             </span>
                         </div>
-                        <p class="text-xs mt-0.5" style="color: var(--text-soft)">
-                            denda {{ number_format($rental->package->penalty_percent, 0) }}%/hari
-                        </p>
                     </div>
                     @endif
 
-                                        @if(in_array($rental->rental_status, ['active','overdue']) && $rental->live_late_fee > 0)
+                    @if(in_array($rental->rental_status, ['active','overdue']) && $rental->live_late_days > 0)
                     <div>
-                        <p class="text-xs" style="color: var(--text-soft)">Est. Denda Saat Ini</p>
+                        <p class="text-xs" style="color: var(--text-soft)">Status Keterlambatan</p>
                         <p class="font-bold text-sm mt-0.5 text-red-500">
-                            Rp {{ number_format($rental->live_late_fee, 0, ',', '.') }}
-                        </p>
-                        <p class="text-xs mt-0.5" style="color:var(--text-soft)">
-                            {{ $rental->getLiveLateAttributeDays() }} hari terlambat
+                            {{ $rental->live_late_days }} hari terlambat
                         </p>
                     </div>
                     @endif
@@ -641,6 +686,7 @@
                             'cash'     => ['Tunai',    'banknote'],
                             'transfer' => ['Transfer', 'building-2'],
                             'qris'     => ['QRIS',     'qr-code'],
+                            'other' => ['Lainnya',  'credit-card']
                         ] as $val => [$label, $icon])
                         <label class="flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50"
                                style="border-color: var(--border)">
@@ -697,6 +743,15 @@
                     </select>
                 </div>
 
+                                <div x-show="paymentMethod === 'qris' && paymentChannel" x-cloak x-transition
+                     class="flex flex-col items-center gap-2 p-3 rounded-xl" style="background: var(--bg-main)">
+                    <img src="{{ route('rentals.qris-demo.qr', $rental) }}" alt="QR QRIS"
+                         class="w-40 h-40 rounded-lg" style="background: white; padding: 8px; border: 1px solid var(--border)">
+                    <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                        Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="paymentChannel"></span>
+                    </p>
+                </div>
+
                 {{-- No. Referensi --}}
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
@@ -707,6 +762,82 @@
                            class="form-input w-full text-sm"
                            style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
                            placeholder="No. transfer, kode QRIS...">
+                </div>
+
+                <div x-show="paymentMethod === 'other'" x-cloak x-transition>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Jenis Pembayaran <span class="text-red-400">*</span></label>
+                    <select name="otherOptions" x-model="otherOptions" :required="paymentMethod==='other'" class="form-input w-full text-sm" style="padding-top:.5rem;padding-bottom:.5rem;">
+                        <option value="">Pilih jenis pembayaran...</option>
+                        <option value="card">Kartu Kredit / Debit</option>
+                        <option value="guarantee">Jaminan Barang</option>
+                    </select>
+                </div>
+
+                <div x-show="paymentMethod==='other' && otherOptions==='card'" x-cloak x-transition class="space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Jenis Kartu <span class="text-red-400">*</span></label>
+                            <select name="card_type" class="form-input w-full text-sm" style="padding-top:.5rem;padding-bottom:.5rem;">
+                                <option value="">Pilih...</option>
+                                <option value="credit">Kartu Kredit</option>
+                                <option value="debit">Kartu Debit</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Bank <span class="text-red-400">*</span></label>
+                            <select name="card_bank" class="form-input w-full text-sm" style="padding-top:.5rem;padding-bottom:.5rem;">
+                                <option value="">Pilih Bank...</option>
+                                <template x-for="bank in bankOptions" :key="bank"><option :value="bank" x-text="bank"></option></template>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">No. Referensi <span class="text-red-400">*</span></label>
+                        <input type="text" name="card_reference" class="form-input w-full text-sm" placeholder="Nomor referensi transaksi" style="padding-top:.5rem;padding-bottom:.5rem;">
+                    </div>
+                </div>
+
+                <div x-show="paymentMethod==='other' && otherOptions==='guarantee'" x-cloak x-transition class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Nama Barang <span class="text-red-400">*</span></label>
+                        <input type="text" name="guarantee_name" class="form-input w-full text-sm" placeholder="Nama barang" style="padding-top:.5rem;padding-bottom:.5rem;">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Merk</label>
+                            <input type="text" name="guarantee_brand" class="form-input w-full text-sm" placeholder="Merk barang" style="padding-top:.5rem;padding-bottom:.5rem;">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Kondisi</label>
+                            <select name="guarantee_condition" class="form-input w-full text-sm" style="padding-top:.5rem;padding-bottom:.5rem;">
+                                <option value="">Pilih...</option>
+                                <option>Baru</option>
+                                <option>Sangat Baik</option>
+                                <option>Baik</option>
+                                <option>Cukup</option>
+                                <option>Rusak Ringan</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Estimasi Harga</label>
+                            <input type="number" name="guarantee_value" class="form-input w-full text-sm" placeholder="0" style="padding-top:.5rem;padding-bottom:.5rem;">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Nomor Seri / IMEI</label>
+                        <input type="text" name="guarantee_serial" class="form-input w-full text-sm" placeholder="Opsional jika barang elektronik" style="padding-top:.5rem;padding-bottom:.5rem;">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Upload Foto Barang</label>
+                        <input type="file" name="guarantee_photos[]" multiple accept="image/*" class="form-input w-full text-sm" style="padding-top:.45rem;padding-bottom:.45rem;">
+                        <p class="text-[10px] mt-1" style="color:var(--text-soft)">Dapat memilih beberapa foto sekaligus.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">Catatan Admin</label>
+                        <textarea name="guarantee_note" rows="3" class="form-input w-full text-sm" placeholder="Catatan hasil pengecekan barang..."></textarea>
+                    </div>
                 </div>
 
                 {{-- Actions --}}
@@ -974,6 +1105,151 @@
         </div>
     </div>
 
+    {{-- ===== MODAL PREVIEW NOTA SEBELUM KIRIM WA ===== --}}
+    <div x-show="showWaPreviewModal"
+         x-cloak
+         @click.self="closeWaPreview()"
+         @keydown.escape.window="closeWaPreview()"
+         class="fixed inset-0 z-50 flex items-center justify-center p-3"
+         style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+
+        <div class="modal-box w-full max-w-lg rounded-2xl flex flex-col"
+             @click.stop
+             style="max-height: 92vh;"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95">
+
+            <div class="flex items-center justify-between p-4 border-b flex-shrink-0" style="border-color: var(--border)">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #DCFCE7">
+                        <i data-lucide="message-circle" class="w-3.5 h-3.5" style="color: #16A34A"></i>
+                    </div>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Pratinjau Nota Sebelum Kirim</h3>
+                </div>
+                <button @click="closeWaPreview()"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                        style="color: var(--text-soft)">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+
+            <div class="p-3 flex-1" style="min-height: 0; overflow: hidden;">
+                <p class="text-xs mb-2" style="color: var(--text-soft)">
+                    Periksa dulu isi nota di bawah — kalau sudah benar, klik konfirmasi untuk membuka WhatsApp.
+                </p>
+                <template x-if="showWaPreviewModal">
+                    <iframe src="{{ route('rentals.invoice.pdf.public', $rental->public_token) }}"
+                            class="w-full rounded-lg border"
+                            style="height: 55vh; border-color: var(--border);"></iframe>
+                </template>
+            </div>
+
+            <div class="flex gap-2 p-4 border-t flex-shrink-0" style="border-color: var(--border)">
+                <button type="button" @click="closeWaPreview()" class="btn-secondary flex-1 justify-center text-sm">
+                    Batal
+                </button>
+                <button type="button" @click="confirmSendWa()"
+                        class="flex-1 justify-center text-sm rounded-xl font-semibold flex items-center gap-2"
+                        style="background: #25D366; color: white; padding: 0.6rem 1.4rem;">
+                    <i data-lucide="check-circle" class="w-4 h-4"></i>
+                    Konfirmasi &amp; Kirim WA
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- ===== MODAL BATALKAN PENYEWAAN ===== --}}
+    <div x-show="showCancelModal"
+         x-cloak
+         @click.self="closeCancel()"
+         @keydown.escape.window="closeCancel()"
+         class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-16"
+         style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+
+        <div class="modal-box w-full max-w-sm rounded-2xl"
+             @click.stop
+             style="max-height: 90vh; overflow-y: auto;"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95">
+
+            <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--border)">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEE2E2">
+                        <i data-lucide="x-circle" class="w-3.5 h-3.5" style="color: #DC2626"></i>
+                    </div>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Batalkan Penyewaan</h3>
+                </div>
+                <button @click="closeCancel()"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                        style="color: var(--text-soft)">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-3">
+                <div class="rounded-xl p-3" style="background: #FEF2F2; border: 1px solid #FECACA">
+                    <p class="text-xs" style="color: #991B1B">
+                        Penyewaan <strong>{{ $rental->invoice_number }}</strong> akan dibatalkan. Karena belum
+                        aktif/belum diserahkan ke customer, stok barang akan langsung dikembalikan ke inventory
+                        (tanpa laundry) dan tagihan otomatis menjadi <strong>Rp 0</strong>. Tindakan ini tidak
+                        bisa dibatalkan (undo).
+                    </p>
+                </div>
+
+                <form method="POST" action="{{ route('rentals.cancel', $rental) }}" class="space-y-3"
+                      @submit="cancelLoading = true">
+                    @csrf
+                    @method('PATCH')
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Alasan Pembatalan
+                            <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        </label>
+                        <textarea name="reason" x-model="cancelReason" rows="3" maxlength="255"
+                                  class="form-input w-full text-sm"
+                                  placeholder="Contoh: customer batal, salah input, dll."></textarea>
+                    </div>
+
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" @click="closeCancel()" class="btn-secondary flex-1 justify-center text-sm">
+                            Batal
+                        </button>
+                        <button type="submit" :disabled="cancelLoading"
+                                class="flex-1 justify-center text-sm rounded-xl font-semibold flex items-center gap-2"
+                                style="background: #DC2626; color: white; padding: 0.6rem 1.4rem;"
+                                :class="cancelLoading ? 'opacity-70' : ''">
+                            <template x-if="cancelLoading">
+                                <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                            </template>
+                            <span x-text="cancelLoading ? 'Memproses...' : 'Ya, Batalkan'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
 </div>
 @endsection
 
@@ -984,15 +1260,21 @@ function rentalDetail() {
         showPaymentModal: false,
         showReturnModal: false,
         showDiscountModal: false,
+        showCancelModal: false,
+        showWaPreviewModal: false,
         paymentLoading: false,
         returnLoading: false,
         discountLoading: false,
+        cancelLoading: false,
+        cancelReason: '',
+        cancelLaundryFee: 0,
 
         paymentMethod: 'cash',
         paymentChannel: '',      // nama bank (transfer) ATAU bank/e-wallet (qris)
         paymentAccountNumber: '',
-        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga', 'Bank Lainnya'],
-        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'Lainnya'],
+        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga',],
+        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana' ],
+        otherOptions: ['Lain-lain'], 
         resetPaymentMethod() {
             this.paymentChannel = '';
             this.paymentAccountNumber = '';
@@ -1052,6 +1334,29 @@ function rentalDetail() {
             this.showDiscountModal = false;
             this.discountLoading = false;
             document.body.style.overflow = '';
+        },
+        openCancel() {
+            this.showCancelModal = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeCancel() {
+            this.showCancelModal = false;
+            this.cancelLoading = false;
+            this.cancelReason = '';
+            this.cancelLaundryFee = 0;
+            document.body.style.overflow = '';
+        },
+        openWaPreview() {
+            this.showWaPreviewModal = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeWaPreview() {
+            this.showWaPreviewModal = false;
+            document.body.style.overflow = '';
+        },
+        confirmSendWa() {
+            window.open('{{ route('rentals.whatsapp', $rental) }}', '_blank');
+            this.closeWaPreview();
         },
     }
 }

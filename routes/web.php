@@ -26,6 +26,11 @@ Route::get('/invoice/{token}', [RentalController::class, 'invoicePublic'])
 Route::get('/invoice/{token}/pdf', [RentalController::class, 'invoicePdfPublic'])
     ->name('rentals.invoice.pdf.public');
 
+Route::get('/qris-demo/{rental}', [RentalController::class, 'qrisDemo'])
+    ->name('rentals.qris-demo');
+Route::get('/qris-demo/{rental}/qr', [RentalController::class, 'qrisDemoQr'])
+    ->name('rentals.qris-demo.qr');
+
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
     Route::get('login',  [AuthenticatedSessionController::class, 'create'])->name('login');

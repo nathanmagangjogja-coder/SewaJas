@@ -5,7 +5,8 @@
 @section('subtitle', $rental->invoice_number)
 
 @section('content')
-<div class="max-w-3xl mx-auto space-y-5" id="scan-result-content">
+<div class="max-w-3xl mx-auto space-y-5" id="scan-result-content"
+     x-data="latePaymentModal({{ session('open_late_fee_payment') ? 'true' : 'false' }})">
 
     {{-- ─── BACK & ACTIONS ─────────────────────────────────────────── --}}
     <div class="flex items-center justify-between">
@@ -19,9 +20,7 @@
         </a>
     </div>
 
-    {{-- ─── STEPPER: penanda progres alur retur ───────────────────────
-         PATCH BARU: supaya kasir/petugas tidak scroll panjang tanpa arah --}}
-    @php
+        @php
         $stepActive = in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status === 'paid';
         $stepDone   = $rental->rental_status === 'returned';
     @endphp
@@ -126,6 +125,31 @@
         </div>
     </div>
 
+    {{-- ─── DENDA BELUM DIBAYAR (pembayaran ke-2, terpisah dari sewa) ── --}}
+    @if(in_array($rental->rental_status, ['menunggu_laundry', 'dalam_laundry', 'siap_disewakan', 'returned'])
+        && $rental->payment_status !== 'paid'
+        && $rental->late_fee > 0
+        && $rental->remaining_amount > 0)
+    <div class="p-4 rounded-xl flex items-center justify-between gap-3 flex-wrap"
+         style="background: #FFF1F0; border: 1px solid #FECACA">
+        <div class="flex items-center gap-3">
+            <i data-lucide="alarm-clock" class="w-5 h-5 flex-shrink-0" style="color: #C0392B"></i>
+            <div>
+                <p class="font-semibold text-sm" style="color: #C0392B">Denda Keterlambatan Belum Dibayar</p>
+                <p class="text-xs" style="color: #E74C3C">
+                    Sisa tagihan denda: Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
+                </p>
+            </div>
+        </div>
+        <button @click="openLateFeePayment()" type="button"
+                class="btn-primary text-sm"
+                style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+            <i data-lucide="credit-card" class="w-4 h-4"></i>
+            Bayar Denda
+        </button>
+    </div>
+    @endif
+
     {{-- ─── BARANG DISEWA ───────────────────────────────────────────── --}}
     <div class="card p-6" style="border-top: 3px solid var(--primary)">
         <h3 class="font-playfair font-semibold text-base mb-4 flex items-center gap-2" style="color: var(--text-dark)">
@@ -216,29 +240,20 @@
     </div>
     @endif
 
-    {{-- ─── DENDA (tampil jika terlambat & belum dikembalikan) ─────── --}}
+    {{-- ─── INFO KETERLAMBATAN (hari saja, denda diinput manual di bawah) ─── --}}
     @if(in_array($rental->rental_status, ['active', 'overdue']) && $feeData['late_days'] > 0)
     <div class="card p-6" style="border-top: 3px solid #C0392B; background: #FFFBFB">
-        <h3 class="font-playfair font-semibold text-base mb-4 flex items-center gap-2" style="color: #C0392B">
+        <h3 class="font-playfair font-semibold text-base mb-2 flex items-center gap-2" style="color: #C0392B">
             <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-            Estimasi Denda Keterlambatan
+            Terlambat Dikembalikan
         </h3>
-        <div class="space-y-2 text-sm">
-            <div class="flex justify-between">
-                <span style="color: var(--text-soft)">Terlambat</span>
-                <span class="font-semibold" style="color: #C0392B">{{ $feeData['late_days'] }} hari</span>
-            </div>
-            <div class="flex justify-between">
-                <span style="color: var(--text-soft)">Denda per hari</span>
-                <span style="color: var(--text-dark)">Rp 10.000</span>
-            </div>
-            <div class="flex justify-between font-bold pt-2 border-t" style="border-color: #FECACA">
-                <span style="color: var(--text-dark)">Total Denda</span>
-                <span style="color: #C0392B">
-                    Rp {{ number_format($feeData['late_fee'], 0, ',', '.') }}
-                </span>
-            </div>
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-soft)">Jumlah hari terlambat</span>
+            <span class="font-semibold" style="color: #C0392B">{{ $feeData['late_days'] }} hari</span>
         </div>
+        <p class="text-xs mt-2" style="color: var(--text-soft)">
+            Nominal denda ditentukan manual oleh staf di form di bawah.
+        </p>
     </div>
     @endif
 
@@ -249,6 +264,61 @@
         $guaranteeAvailable = $rental->guarantees->where('status', 'held')->count() > 0;
     @endphp
     <div x-data="returnForm({{ $returnItems->pluck('id') }}, {{ (float) $rental->subtotal }}, {{ (float) ($feeData['late_fee'] ?? 0) }}, {{ $returnItems->pluck('subtotal', 'id') }})" class="space-y-5">
+
+                @if(in_array($rental->rental_status, ['active', 'overdue']) && $feeData['late_days'] > 0)
+        <div class="card p-6" style="border-top: 3px solid #C0392B; background: #FFFBFB">
+            <h3 class="font-playfair font-semibold text-base mb-1 flex items-center gap-2" style="color: var(--text-dark)">
+                <i data-lucide="banknote" class="w-4 h-4" style="color: #C0392B"></i>
+                Denda Keterlambatan (Manual)
+            </h3>
+            <p class="text-xs mb-3" style="color: var(--text-soft)">
+                Rental ini terlambat <strong>{{ $feeData['late_days'] }} hari</strong>. Denda tidak lagi dihitung otomatis — tentukan nominal sesuai kebijakan toko, kondisi barang, dan riwayat customer. Kosongkan / isi 0 kalau tidak ada denda.
+            </p>
+
+            {{-- Ringkasan kondisi barang - konteks cepat buat staf sebelum menentukan nominal --}}
+            <div class="flex items-center gap-3 mb-4 p-2.5 rounded-lg text-xs" style="background: var(--bg-main)">
+                <span style="color: var(--text-soft)">Kondisi barang:</span>
+                <span class="flex items-center gap-1" style="color: #16A34A">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                    <span x-text="counts.good"></span> baik
+                </span>
+                <span class="flex items-center gap-1" style="color: #D97706" x-show="counts.damaged > 0">
+                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+                    <span x-text="counts.damaged"></span> rusak
+                </span>
+                <span class="flex items-center gap-1" style="color: #DC2626" x-show="counts.lost > 0">
+                    <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
+                    <span x-text="counts.lost"></span> hilang
+                </span>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">Nominal Denda</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style="color: var(--text-soft)">Rp</span>
+                        <input type="number" name="late_fee" x-model.number="lateFee" min="0" step="1000"
+                               class="form-input w-full pl-9" placeholder="0">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">
+                        Catatan / Alasan
+                        <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                    </label>
+                    <input type="text" name="late_fee_note" x-model="lateFeeNote"
+                           class="form-input w-full text-sm"
+                           placeholder="Cth: barang cacat produksi, keringanan diberikan">
+                </div>
+            </div>
+
+            {{-- Preview dampak nominal denda secara langsung, biar staf/admin bisa cek cepat sebelum submit --}}
+            <div class="flex items-center justify-between mt-3 pt-3 border-t text-xs" style="border-color: #FECACA" x-show="lateFee > 0">
+                <span style="color: var(--text-soft)">Denda ini akan menambah total sebesar</span>
+                <span class="font-bold" style="color: #C0392B" x-text="fmt(lateFee)"></span>
+            </div>
+        </div>
+        @endif
 
         {{-- ─── DISKON MANUAL (BARU) ────────────────────────────────────── --}}
         <div class="card p-6" style="border-top: 3px solid #0EA5E9">
@@ -429,8 +499,7 @@
                     @endforeach
                 </div>
 
-                {{-- BARU: Resolusi Kerugian — muncul otomatis kalau kondisi Rusak/Hilang --}}
-                <div x-show="conditions[{{ $item->id }}] !== 'good'" x-cloak
+                                <div x-show="conditions[{{ $item->id }}] !== 'good'" x-cloak
                      class="mb-3 p-3 rounded-xl" style="background: #FFF8F0; border: 1px dashed #F0B860">
                     <label class="block text-xs font-semibold mb-2" style="color: #B7791F">
                         <i data-lucide="scale" class="w-3.5 h-3.5 inline mr-1"></i>
@@ -470,8 +539,7 @@
                     </p>
                 </div>
 
-                {{-- Catatan --}}
-                <input type="text" name="items[{{ $index }}][notes]"
+                                <input type="text" name="items[{{ $index }}][notes]"
                        class="form-input text-xs w-full"
                        placeholder="Catatan kondisi barang (opsional)...">
             </div>
@@ -586,11 +654,206 @@
     </div>
     @endif
 
+    {{-- ===== MODAL PEMBAYARAN DENDA (pembayaran ke-2, khusus denda) ===== --}}
+    <div x-show="showLateFeePayment"
+         x-cloak
+         @click.self="closeLateFeePayment()"
+         @keydown.escape.window="closeLateFeePayment()"
+         class="fixed inset-0 z-50 flex items-center justify-center"
+         style="background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+
+        <div class="modal-box w-full sm:max-w-md mx-0 sm:mx-4 p-0 rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto"
+             @click.stop
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95"
+             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95">
+
+            <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--border)">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEE2E2">
+                        <i data-lucide="alarm-clock" class="w-3.5 h-3.5" style="color: #C0392B"></i>
+                    </div>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Bayar Denda Keterlambatan</h3>
+                </div>
+                <button @click="closeLateFeePayment()"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                        style="color: var(--text-soft)">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-3">
+
+                <div class="rounded-xl p-3 relative overflow-hidden"
+                     style="background: linear-gradient(135deg, #C0392B, #E74C3C);">
+                    <p class="text-[10px] font-medium" style="color: rgba(255,255,255,0.75)">Sisa Denda Keterlambatan</p>
+                    <p class="text-xl font-bold font-playfair" style="color: white">
+                        Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
+                    </p>
+                    <p class="text-[10px] mt-0.5" style="color: rgba(255,255,255,0.65)">
+                        Ini adalah pembayaran terpisah dari pembayaran sewa sebelumnya.
+                    </p>
+                </div>
+
+                <form method="POST" action="{{ route('rentals.payment', $rental) }}" class="space-y-3"
+                      enctype="multipart/form-data"
+                      @submit="lateFeePaymentLoading = true">
+                    @csrf
+                    <input type="hidden" name="type" value="late_fee">
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Jumlah Bayar <span class="text-red-400">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold" style="color: var(--text-soft)">Rp</span>
+                            <input type="number" name="amount" required min="1"
+                                   value="{{ (int) $rental->remaining_amount }}"
+                                   class="form-input w-full pl-9 font-bold text-sm"
+                                   style="color: #C0392B; padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-dark)">Metode Pembayaran</label>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            @foreach([
+                                'cash'     => ['Tunai',    'banknote'],
+                                'transfer' => ['Transfer', 'building-2'],
+                                'qris'     => ['QRIS',     'qr-code'],
+                            ] as $val => [$label, $icon])
+                            <label class="flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50"
+                                   style="border-color: var(--border)">
+                                <input type="radio" name="method" value="{{ $val }}" x-model="lateFeeMethod"
+                                       @change="lateFeeChannel = ''; lateFeeAccountNumber = ''"
+                                       {{ $val === 'cash' ? 'checked' : '' }} class="sr-only">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--bg-main)">
+                                    <i data-lucide="{{ $icon }}" class="w-4 h-4" style="color: #C0392B"></i>
+                                </div>
+                                <span class="text-[10px] font-semibold" style="color: var(--text-dark)">{{ $label }}</span>
+                            </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'transfer'" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Bank Tujuan <span class="text-red-400">*</span>
+                        </label>
+                        <select name="payment_channel" x-model="lateFeeChannel"
+                                :required="lateFeeMethod === 'transfer'"
+                                :disabled="lateFeeMethod !== 'transfer'"
+                                class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                            <option value="">Pilih bank...</option>
+                            <template x-for="bank in bankOptions" :key="bank">
+                                <option :value="bank" x-text="bank"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'transfer' && lateFeeChannel" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Nomor Rekening Tujuan <span class="text-red-400">*</span>
+                        </label>
+                        <input type="text" name="account_number" x-model="lateFeeAccountNumber"
+                               :required="lateFeeMethod === 'transfer' && lateFeeChannel"
+                               :disabled="!(lateFeeMethod === 'transfer' && lateFeeChannel)"
+                               inputmode="numeric" placeholder="Contoh: 1234567890"
+                               class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'qris'" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            QRIS via <span class="text-red-400">*</span>
+                        </label>
+                        <select name="payment_channel" x-model="lateFeeChannel"
+                                :required="lateFeeMethod === 'qris'"
+                                :disabled="lateFeeMethod !== 'qris'"
+                                class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                            <option value="">Pilih bank / e-wallet...</option>
+                            <template x-for="opt in qrisOptions" :key="opt">
+                                <option :value="opt" x-text="opt"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'qris' && lateFeeChannel" x-cloak x-transition
+                         class="flex flex-col items-center gap-2 p-3 rounded-xl" style="background: var(--bg-main)">
+                        <img src="{{ route('rentals.qris-demo.qr', $rental) }}" alt="QR QRIS"
+                             class="w-40 h-40 rounded-lg" style="background: white; padding: 8px; border: 1px solid var(--border)">
+                        <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                            Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="lateFeeChannel"></span>
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            No. Referensi
+                            <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        </label>
+                        <input type="text" name="reference_number"
+                               class="form-input w-full text-sm"
+                               style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
+                               placeholder="No. transfer, kode QRIS...">
+                    </div>
+
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" @click="closeLateFeePayment()"
+                                class="btn-secondary flex-1 justify-center text-sm py-2.5">
+                            Nanti Saja
+                        </button>
+                        <button type="submit"
+                                data-no-loading
+                                :disabled="lateFeePaymentLoading"
+                                :class="lateFeePaymentLoading ? 'btn-loading' : ''"
+                                class="btn-primary flex-1 justify-center text-sm py-2.5 font-semibold"
+                                style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                            <template x-if="lateFeePaymentLoading">
+                                <span class="btn-spinner"></span>
+                            </template>
+                            <template x-if="!lateFeePaymentLoading">
+                                <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                            </template>
+                            <span x-text="lateFeePaymentLoading ? '\u00A0Memproses...' : 'Konfirmasi Bayar Denda'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
 </div>
 @endsection
 
 @push('scripts')
 <script>
+function latePaymentModal(autoOpen) {
+    return {
+        showLateFeePayment: autoOpen,
+        lateFeePaymentLoading: false,
+        lateFeeMethod: 'cash',
+        lateFeeChannel: '',
+        lateFeeAccountNumber: '',
+        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga'],
+        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana'],
+        openLateFeePayment() {
+            this.showLateFeePayment = true;
+        },
+        closeLateFeePayment() {
+            this.showLateFeePayment = false;
+        },
+    }
+}
+
 function returnForm(itemIds, subtotal, lateFee, itemSubtotals) {
     return {
         isLoading: false,
@@ -624,6 +887,7 @@ function returnForm(itemIds, subtotal, lateFee, itemSubtotals) {
         // ── Diskon Manual (BARU) ────────────────────────────────────────────
         subtotal: subtotal,
         lateFee: lateFee,
+        lateFeeNote: '',
         discountName: '',
         discountType: 'nominal',
         discountValue: null,

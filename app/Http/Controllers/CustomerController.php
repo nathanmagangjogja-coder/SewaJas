@@ -35,10 +35,6 @@ class CustomerController extends Controller
 
     public function store(Request $request)
     {
-        // NOTE (revisi): field KTP (id_number, id_photo) dan Catatan Internal (notes)
-        // TIDAK lagi diinput dari halaman Customer. Fitur tersebut dipindah ke form
-        // Penyewaan (rentals.create) — lihat RentalController@store. Nomor HP wajib
-        // numerals-only (validasi regex di bawah, ditambah normalisasi di Customer::booted()).
         $data = $request->validate([
             'name'         => 'required|string|max:150',
             'phone'        => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
@@ -132,8 +128,6 @@ class CustomerController extends Controller
             abort(403, 'Anda tidak memiliki akses ke data customer ini.');
         }
 
-        // NOTE (revisi): KTP (id_number, id_photo) dan Catatan Internal (notes) dikelola
-        // lewat form Penyewaan, bukan di sini. Lihat catatan di store() di atas.
         $data = $request->validate([
             'name'        => 'required|string|max:150',
             'phone'       => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
@@ -381,6 +375,7 @@ class CustomerController extends Controller
                 'photo'    => $c->photo_url,
                 'nik'      => $c->id_number,
                 'id_photo' => $c->id_photo ? asset('storage/' . $c->id_photo) : null,
+                'id_photo_type' => $c->id_photo_type,
                 'notes'    => $c->notes,
             ]);
 

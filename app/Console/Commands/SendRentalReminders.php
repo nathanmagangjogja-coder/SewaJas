@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\Rental;
+use App\Models\User;
+use App\Services\NotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +14,7 @@ class SendRentalReminders extends Command
     protected $signature   = 'rentals:send-reminders';
     protected $description = 'Kirim WA reminder H-1 jatuh tempo sewa jas';
 
-    public function handle(): void
+    public function handle(NotificationService $notifService): void
     {
         $tomorrow = now('Asia/Jakarta')->addDay()->toDateString();
 
@@ -27,6 +29,21 @@ class SendRentalReminders extends Command
 
         foreach ($rentals as $rental) {
             $customer = $rental->customer;
+
+            // ── BARU: notifikasi lonceng ke admin/CS cabang terkait ─────────
+            // Ditaruh sebelum pengecekan nomor HP di bawah, supaya admin/CS
+            // tetap dapat alert (untuk keperluan audit) walau nomor HP
+            // customer kosong dan WA tidak jadi terkirim.
+            $targetIds = User::where('role', 'super_admin')
+                ->orWhere(fn ($q) => $q->where('branch_id', $rental->branch_id)
+                    ->where('role', 'admin_toko'))
+                ->pluck('id')
+                ->toArray();
+
+            if (!empty($targetIds)) {
+                $notifService->rentalDueAlert($rental, 'due_tomorrow', $targetIds);
+            }
+            // ─────────────────────────────────────────────────────────────
 
             if (!$customer?->phone) {
                 $this->warn("  ⚠ {$rental->invoice_number}: no HP kosong, skip.");

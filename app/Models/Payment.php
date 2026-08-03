@@ -10,12 +10,14 @@ class Payment extends Model
     protected $fillable = [
         'rental_id', 'received_by', 'payment_number', 'amount',
         'method', 'payment_channel', 'account_number', 'reference_number',
+        'other_type', 'other_payment_details',
         'type', 'notes', 'paid_at',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'paid_at' => 'datetime',
+        'other_payment_details' => 'array',
     ];
 
     public function rental(): BelongsTo
@@ -63,6 +65,16 @@ class Payment extends Model
 
         if ($this->method === 'transfer' && $this->account_number) {
             return "{$this->payment_channel} · {$this->masked_account_number}";
+        }
+
+        if ($this->method === 'other' && $this->other_type) {
+            $d = $this->other_payment_details ?? [];
+            if ($this->other_type === 'card') {
+                return trim('Kartu ' . ($d['card_type'] ?? '') . ' ' . ($d['card_bank'] ?? ''));
+            }
+            if ($this->other_type === 'guarantee') {
+                return 'Jaminan Barang: ' . ($d['guarantee_name'] ?? '-');
+            }
         }
 
         return $this->payment_channel;

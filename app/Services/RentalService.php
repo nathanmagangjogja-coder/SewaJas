@@ -173,6 +173,8 @@ class RentalService
                 'method'           => $data['method'],
                 'payment_channel'  => $data['payment_channel'] ?? null,
                 'account_number'   => $data['account_number'] ?? null,
+                'other_type'             => $data['other_type'] ?? null,
+                'other_payment_details'  => $data['other_payment_details'] ?? null,
                 'reference_number' => $data['reference_number'] ?? null,
                 'type'             => $data['type'] ?? 'rental',
                 'notes'            => $data['notes'] ?? null,
@@ -180,12 +182,22 @@ class RentalService
             ]);
 
             $newPaidAmount = $rental->paid_amount + (float) $data['amount'];
+            $isFullyPaid   = $newPaidAmount >= $rental->total_amount;
+
+            // FIX: rental_status hanya boleh otomatis maju ke ACTIVE kalau rental
+            // masih dalam siklus SEBELUM retur (waiting/active/overdue). Sebelumnya,
+            // melunasi denda keterlambatan SETELAH barang dikembalikan (status sudah
+            // menunggu_laundry/dalam_laundry/siap_disewakan/returned) ikut memaksa
+            // rental_status kembali jadi 'active' — seolah barang disewa ulang.
+            $preReturnStatuses = [Rental::STATUS_WAITING, Rental::STATUS_ACTIVE, Rental::STATUS_OVERDUE];
+            $nextStatus = ($isFullyPaid && in_array($rental->rental_status, $preReturnStatuses, true))
+                ? Rental::STATUS_ACTIVE
+                : $rental->rental_status;
+
             $rental->update([
                 'paid_amount'    => $newPaidAmount,
-                'payment_status' => $newPaidAmount >= $rental->total_amount ? 'paid' : 'partial',
-                'rental_status'  => $newPaidAmount >= $rental->total_amount
-                                        ? Rental::STATUS_ACTIVE
-                                        : $rental->rental_status,
+                'payment_status' => $isFullyPaid ? 'paid' : 'partial',
+                'rental_status'  => $nextStatus,
             ]);
 
             $this->logActivity('process_payment', $rental,
@@ -215,27 +227,14 @@ class RentalService
             $today   = $now->copy()->startOfDay();
             $dueDate = Carbon::parse($rental->return_due_date, 'Asia/Jakarta')->startOfDay();
 
-            // ── Hitung keterlambatan ──────────────────────────────────────────
-            $lateFee     = 0;
+            // ── Keterlambatan (informasi hari saja) & denda manual ─────────────
             $overdueDays = 0;
-
             if ($today->gt($dueDate)) {
                 $overdueDays = (int) $dueDate->diffInDays($today);
-
-                // Pakai denda paket jika ada; fallback ke settings
-                if ($rental->package) {
-                    $lateFee = $rental->package->calculatePenalty(
-                        (float) $rental->subtotal,
-                        $overdueDays
-                    );
-                } else {
-                    // Legacy: flat per hari dari settings
-                    $finePerDay = (int) DB::table('settings')
-                        ->where('key', 'fine_per_day')
-                        ->value('value') ?? 10000;
-                    $lateFee = $overdueDays * $finePerDay;
-                }
             }
+            $lateFee = isset($data['late_fee']) && $data['late_fee'] !== ''
+                ? max(0, (float) $data['late_fee'])
+                : 0;
 
             // ── Diskon Manual (BARU) ──────────────────────────────────────────
             // Opsional: hanya dihitung/disimpan kalau dikirim dari form retur
@@ -367,9 +366,16 @@ class RentalService
                 'actual_return_date' => $today->toDateString(),
                 'returned_at'        => $now,
                 'late_fee'           => $lateFee,
+                'late_fee_note'      => $data['late_fee_note'] ?? null,
                 'overdue_days'       => $overdueDays,
                 'total_amount'       => $totalWithFees,
-                'payment_status'     => $totalWithFees <= $rental->paid_amount ? 'paid' : $rental->payment_status,
+                // FIX: sebelumnya jika belum lunas kode ini mempertahankan payment_status
+                // LAMA (yang biasanya 'paid', karena syarat retur mengharuskan lunas dulu).
+                // Akibatnya setelah denda ditambahkan, status tetap 'paid' walau saldo
+                // sebenarnya belum 0 — sehingga tombol "Bayar" untuk pelunasan denda
+                // tidak pernah muncul lagi di UI manapun. Sekarang dihitung ulang murni
+                // dari perbandingan total vs. paid_amount.
+                'payment_status'     => $totalWithFees <= $rental->paid_amount ? 'paid' : 'partial',
             ];
 
             if ($hasManualDiscount) {
@@ -437,9 +443,98 @@ class RentalService
                         Storage::disk('public')->delete($customer->id_photo);
                     } catch (\Throwable $e) {
                     }
-                    $customer->update(['id_photo' => null]);
+                    $customer->update(['id_photo' => null, 'id_photo_type' => null]);
                 }
             }
+
+            return $rental->fresh();
+        });
+    }
+
+    // ─── Cancel Rental ────────────────────────────────────────────────────────
+
+    /**
+     * Membatalkan penyewaan dengan 2 alur berbeda tergantung fase penyewaan:
+     *
+     * 1) BELUM AKTIF (rental_status === waiting, artinya belum lunas/belum
+     *    diserahkan ke customer): barang belum pernah dipakai, jadi stok
+     *    langsung dikembalikan ke inventory (tanpa laundry) dan tagihan
+     *    (total_amount) dinolkan — customer tidak berhutang apa pun.
+     *
+     * 2) SUDAH AKTIF/OVERDUE (barang sedang dipegang/dipakai customer):
+     *    barang tetap harus dicuci meski batal di tengah jalan, jadi item
+     *    dikirim ke antrian laundry (sama seperti retur normal) alih-alih
+     *    langsung kembali ke stok, DAN wajib ada biaya laundry manual
+     *    (`laundry_fee`) yang ditambahkan ke total_amount sebagai kompensasi.
+     *
+     * $data: ['reason' => ?string, 'laundry_fee' => ?float]
+     */
+    public function cancelRental(Rental $rental, array $data = []): Rental
+    {
+        return DB::transaction(function () use ($rental, $data) {
+            $wasActive = !$rental->is_cancellable_without_fee; // true jika active/overdue
+
+            $laundryFee = 0.0;
+
+            if ($wasActive) {
+                // ── Barang sudah dipakai: wajib laundry + biaya manual ──────────
+                $laundryFee = max(0, (float) ($data['laundry_fee'] ?? 0));
+
+                foreach ($rental->items as $item) {
+                    Laundry::create([
+                        'transaksi_id'    => $rental->id,
+                        'produk_id'       => $item->product_id,
+                        'status'          => Laundry::STATUS_MENUNGGU_LAUNDRY,
+                        'dikembalikan_at' => now('Asia/Jakarta'),
+                    ]);
+                }
+
+                $newTotal = (float) $rental->total_amount + $laundryFee;
+            } else {
+                // ── Belum pernah dipakai: stok langsung balik, tagihan nol ──────
+                foreach ($rental->items as $item) {
+                    if ($item->product_id) {
+                        $product = Product::find($item->product_id);
+                        if ($product) {
+                            $product->increment('stock_available', $item->quantity);
+                            $product->refresh();
+                            if ($product->stock_available > 0 && $product->status === 'rented') {
+                                $product->update(['status' => 'available']);
+                            }
+                        }
+                    }
+                }
+
+                $newTotal = 0.0;
+            }
+
+            $rental->update([
+                'rental_status'      => Rental::STATUS_CANCELLED,
+                'cancel_reason'      => $data['reason'] ?? null,
+                'cancelled_at'       => now('Asia/Jakarta'),
+                'cancelled_by'       => Auth::id(),
+                'total_amount'       => $newTotal,
+                'cancel_laundry_fee' => $laundryFee,
+                // FIX: sebelumnya dihitung murni dari (paid_amount >= total_amount),
+                // yang keliru untuk pembatalan SEBELUM bayar — karena total_amount
+                // sengaja dinolkan, rumus itu selalu bernilai true (0 >= 0) sehingga
+                // badge menampilkan "LUNAS" padahal customer belum pernah bayar sama
+                // sekali. "Lunas" seharusnya hanya untuk yang benar-benar SUDAH
+                // membayar penuh, bukan untuk tagihan yang dihapuskan karena batal.
+                'payment_status'     => match (true) {
+                    // Belum aktif & batal sebelum bayar -> tidak pernah "lunas",
+                    // tetap tercatat belum bayar (tagihannya sendiri sudah nol).
+                    !$wasActive => Rental::PAYMENT_UNPAID,
+                    (float) $rental->paid_amount >= $newTotal => Rental::PAYMENT_PAID,
+                    default => Rental::PAYMENT_PARTIAL,
+                },
+            ]);
+
+            $this->logActivity('cancel_rental', $rental,
+                $wasActive
+                    ? "Penyewaan {$rental->invoice_number} dibatalkan saat AKTIF — barang masuk antrian laundry, biaya laundry Rp " . number_format($laundryFee, 0, ',', '.')
+                    : "Penyewaan {$rental->invoice_number} dibatalkan sebelum aktif — stok langsung dikembalikan, tagihan Rp 0"
+            );
 
             return $rental->fresh();
         });

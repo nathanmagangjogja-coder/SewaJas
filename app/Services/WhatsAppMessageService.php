@@ -41,6 +41,60 @@ class WhatsAppMessageService
         return "https://wa.me/{$phone}?text=" . urlencode($message);
     }
 
+    /**
+     * BARU: kirim pesan WA secara otomatis (server-side), tanpa perlu admin
+     * klik link wa.me manual. Meniru persis logika driver-switch yang sudah
+     * dipakai di BroadcastController::sendSelected() (local/custom/fonnte),
+     * supaya konfigurasi gateway (config('services.broadcast.driver'), dst.)
+     * konsisten dan tidak perlu diatur dua kali di tempat berbeda.
+     *
+     * @return array{success: bool, body: string}
+     */
+    public function sendDirect(string $rawPhone, string $message): array
+    {
+        $phone  = $this->normalizePhone($rawPhone);
+        $driver = config('services.broadcast.driver', 'fonnte');
+
+        if ($driver === 'local') {
+            return ['success' => true, 'body' => json_encode(['status' => true, 'reason' => 'local-mock', 'target' => $phone])];
+        }
+
+        if ($driver === 'custom') {
+            $cfg         = config('services.broadcast.custom', []);
+            $url         = $cfg['url'] ?? null;
+            $token       = $cfg['token'] ?? null;
+            $tokenHeader = $cfg['token_header'] ?? 'Authorization';
+            $targetKey   = $cfg['target_key'] ?? 'target';
+            $messageKey  = $cfg['message_key'] ?? 'message';
+
+            if (!$url) {
+                return ['success' => false, 'body' => 'Custom provider not configured'];
+            }
+
+            $client = \Illuminate\Support\Facades\Http::withOptions(['verify' => false])->timeout(30);
+            if ($token) {
+                $client = $client->withHeaders([$tokenHeader => $token]);
+            }
+
+            $response = $client->post($url, [$targetKey => $phone, $messageKey => $message]);
+
+            return ['success' => $response->successful(), 'body' => $response->body()];
+        }
+
+        // Fonnte (default)
+        $token = config('services.fonnte.token');
+        if (!$token) {
+            return ['success' => false, 'body' => 'Fonnte token not configured'];
+        }
+
+        $response = \Illuminate\Support\Facades\Http::withOptions(['verify' => false])
+            ->timeout(30)
+            ->withHeaders(['Authorization' => $token])
+            ->post('https://api.fonnte.com/send', ['target' => $phone, 'message' => $message]);
+
+        return ['success' => $response->successful(), 'body' => $response->body()];
+    }
+
         public function buildPdfInvoiceMessage(Rental $rental, string $pdfLink): string
     {
         $clipboard = "\u{1F4CB}";

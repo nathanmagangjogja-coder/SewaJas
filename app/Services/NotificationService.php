@@ -58,4 +58,37 @@ class NotificationService
             "{$rental->customer->name} — jatuh tempo hari ini",
             ['invoice_no' => $rental->invoice_no], $rental->branch_id);
     }
+
+    /**
+     * BARU: notifikasi lonceng untuk alert jatuh tempo (H-1 / hari ini /
+     * baru saja terlambat). Dipanggil oleh command `rentals:send-reminders`
+     * (H-1/hari ini) dan `rentals:update-overdue` (baru jadi overdue).
+     *
+     * NOTE: dipakai `invoice_number` (bukan `invoice_no` seperti method2 lain
+     * di atas) karena itulah nama kolom yang sebenarnya ada di tabel
+     * `rentals` — method2 lain di file ini (rentalCreated, rentalReturned,
+     * dst.) memakai `invoice_no` yang TIDAK ADA di model Rental, jadi akan
+     * selalu tampil kosong pada notifikasi. Sebaiknya diperbaiki juga kalau
+     * sempat, tapi di luar cakupan perubahan ini.
+     */
+    public function rentalDueAlert($rental, string $stage, array $userIds): void
+    {
+        $labels = [
+            'due_tomorrow' => ['Jatuh Tempo Besok (H-1)', 'jatuh tempo BESOK'],
+            'due_today'    => ['Jatuh Tempo Hari Ini',    'jatuh tempo HARI INI'],
+            'overdue'      => ['Baru Saja Terlambat',     'baru saja melewati jatuh tempo'],
+        ];
+
+        [$title, $phrase] = $labels[$stage] ?? ['Alert Jatuh Tempo', 'mendekati jatuh tempo'];
+
+        $this->broadcast(
+            $userIds,
+            'due_alert',
+            $title,
+            "{$rental->customer->name} — {$rental->invoice_number} {$phrase} ({$rental->return_due_date->format('d M Y')})",
+            ['invoice_number' => $rental->invoice_number, 'stage' => $stage],
+            $rental->branch_id,
+            route('rentals.show', $rental)
+        );
+    }
 }

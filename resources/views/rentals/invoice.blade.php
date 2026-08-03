@@ -180,15 +180,13 @@
                         <span style="color: #E74C3C">+Rp {{ number_format($rental->late_fee, 0, ',', '.') }}</span>
                     </div>
                     @endif
-                    {{-- BARU: Denda Barang Rusak/Hilang --}}
-                    @if($rental->total_damage_fee > 0)
+                                        @if($rental->total_damage_fee > 0)
                     <div class="flex justify-between text-sm">
                         <span style="color: var(--inv-text-secondary)">Denda Rusak/Hilang</span>
                         <span style="color: #E74C3C">+Rp {{ number_format($rental->total_damage_fee, 0, ',', '.') }}</span>
                     </div>
                     @endif
-                    {{-- BARU: Diskon Manual (dari proses retur) --}}
-                    @if($rental->has_manual_discount)
+                                        @if($rental->has_manual_discount)
                     <div class="flex justify-between text-sm">
                         <span style="color: var(--inv-text-secondary)">
                             Diskon Manual{{ $rental->discount_name ? " ({$rental->discount_name})" : '' }}
@@ -244,12 +242,7 @@
                     </div>
                     <p>
                         Barang wajib kembali pada <strong>{{ $rental->return_due_date->format('d F Y') }}</strong>.
-                        Denda keterlambatan {{ $rental->package ? number_format($rental->package->penalty_percent, 0) : '50' }}% per hari
-                        @if($rental->package?->max_penalty_percent)
-                            maksimal {{ number_format($rental->package->max_penalty_percent, 0) }}%.
-                        @else
-                            dari subtotal.
-                        @endif
+                        Keterlambatan pengembalian akan dikenakan denda sesuai kebijakan toko.
                     </p>
                 </div>
 

@@ -276,7 +276,7 @@
         </svg>
         <div>
             <span class="font-serif text-lg font-bold text-cream-DEFAULT leading-none">
-                Monsieur<span class="text-gold italic">Jas</span>
+                Sewa<span class="text-gold italic">Jas</span>
             </span>
             <p class="text-gold/50 text-[10px] tracking-widest uppercase leading-none mt-0.5">Premium Jas Rental</p>
         </div>
@@ -396,7 +396,7 @@
                 <!-- Brand name -->
                 <div class="fade-up-1">
                     <h1 class="font-serif text-4xl xl:text-5xl font-bold text-cream-DEFAULT tracking-wide leading-none">
-                        Monsieur<span class="shimmer-text italic">Jas</span>
+                        Sewa<span class="shimmer-text italic">Jas</span>
                     </h1>
                     <div class="flex items-center justify-center gap-3 mt-3">
                         <div class="gold-line"></div>

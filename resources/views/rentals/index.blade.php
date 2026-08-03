@@ -80,8 +80,8 @@
                     <span class="w-2 h-2 rounded-full bg-amber-400"></span>
                 @endif
             </span>
-            <i data-lucide="chevron-down" class="w-4 h-4 transition-transform"
-               :class="expanded ? 'rotate-180' : '' text-soft"></i>
+            <i data-lucide="chevron-down" class="w-4 h-4 transition-transform text-soft"
+               :class="{ 'rotate-180': expanded }"></i>
         </button>
 
         <form method="GET" action="{{ route('rentals.index') }}"
@@ -161,7 +161,7 @@
                 </thead>
                 <tbody>
                     @forelse($rentals as $rental)
-                    <tr class="{{ $rental->rental_status === 'overdue' ? 'bg-red-50/30' : '' }}">
+                    <tr class="{{ $rental->rental_status === 'overdue' ? 'bg-red-50/30' : (in_array($rental->due_alert['level'] ?? null, ['today', 'tomorrow']) ? 'bg-amber-50/40' : '') }}">
                         <td class="text-xs text-soft">{{ $rentals->firstItem() + $loop->index }}</td>
                         <td>
                             <a href="{{ route('rentals.show', $rental) }}"
@@ -209,8 +209,12 @@
                                   style="{{ $rental->rental_status !== 'overdue' ? 'color: var(--text-dark)' : '' }}">
                                 {{ $rental->return_due_date->format('d M Y') }}
                             </span>
-                            @if($rental->rental_status === 'overdue')
-                            <p class="text-xs text-red-400">{{ $rental->overdue_days }} hari telat</p>
+                            @if($rental->due_alert)
+                            <p class="text-xs mt-0.5 font-semibold flex items-center gap-1"
+                               style="color: {{ match($rental->due_alert['level']) { 'overdue' => '#DC2626', 'today' => '#DC2626', 'tomorrow' => '#D97706', default => '#B45309' } }}">
+                                <i data-lucide="{{ $rental->due_alert['level'] === 'overdue' ? 'alert-triangle' : 'clock-alert' }}" class="w-3 h-3"></i>
+                                {{ $rental->due_alert['label'] }}
+                            </p>
                             @endif
                         </td>
                         <td class="text-right font-semibold text-sm whitespace-nowrap text-dark">
@@ -262,7 +266,7 @@
     {{-- Mobile Card List --}}
     <div class="md:hidden space-y-3">
         @forelse($rentals as $rental)
-        <div class="card p-4 {{ $rental->rental_status === 'overdue' ? 'border-l-4 border-red-400' : '' }}">
+        <div class="card p-4 {{ $rental->rental_status === 'overdue' ? 'border-l-4 border-red-400' : (in_array($rental->due_alert['level'] ?? null, ['today', 'tomorrow']) ? 'border-l-4 border-amber-400' : '') }}">
             {{-- Header row --}}
             <div class="flex items-start justify-between gap-2 mb-3">
                 <div>
@@ -276,8 +280,12 @@
                             {{ $rental->return_due_date->format('d M Y') }}
                         </span>
                     </p>
-                    @if($rental->rental_status === 'overdue')
-                    <p class="text-xs text-red-400 mt-0.5">{{ $rental->overdue_days }} hari telat</p>
+                    @if($rental->due_alert)
+                    <p class="text-xs mt-0.5 font-semibold flex items-center gap-1"
+                       style="color: {{ match($rental->due_alert['level']) { 'overdue' => '#DC2626', 'today' => '#DC2626', 'tomorrow' => '#D97706', default => '#B45309' } }}">
+                        <i data-lucide="{{ $rental->due_alert['level'] === 'overdue' ? 'alert-triangle' : 'clock-alert' }}" class="w-3 h-3"></i>
+                        {{ $rental->due_alert['label'] }}
+                    </p>
                     @endif
                 </div>
                 <div class="flex flex-col items-end gap-1 flex-shrink-0">

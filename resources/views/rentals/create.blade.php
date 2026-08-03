@@ -175,7 +175,7 @@
                             {{ $pkg->is_custom ? 'Durasi bebas' : $pkg->duration_days . ' hari' }}
                         </p>
                         <p class="text-[10px] font-semibold mt-1" style="color: #D97706">
-                            denda {{ number_format($pkg->penalty_percent, 0) }}%/hari
+                            Denda keterlambatan sesuai kebijakan toko
                         </p>
 
                         {{-- Checkmark terpilih --}}
@@ -682,7 +682,7 @@
                                   style="background: linear-gradient(135deg, #D6B98C22, #C4A47822); color: var(--primary); border: 1px solid #D6B98C55"
                                   x-text="selectedPackageName"></span>
                             <span class="text-xs" style="color: var(--text-soft)"
-                                  x-text="activeDurationDays + ' hari · denda ' + selectedPenaltyPct + '%/hari'"></span>
+                                  x-text="activeDurationDays + ' hari'"></span>
                         </div>
                     </div>
 
@@ -899,7 +899,7 @@ function rentalForm() {
             this.selectedCustomer    = c;
             this.customerSearch      = c.name;
             this.showCustomerResults = false;
-            this.guaranteeType       = '';
+            this.guaranteeType       = c.id_photo_type || '';
             // reset verifikasi KTP mengikuti data customer yang dipilih
             this.idPhotoPreview = null;
             this.idPhotoBlob    = null;

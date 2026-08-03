@@ -28,11 +28,12 @@ class Rental extends Model
         'package_id',                          // ← BARU
         'rental_date', 'return_due_date', 'actual_return_date', 'returned_at',
         'duration_days',
-        'subtotal', 'discount', 'late_fee', 'total_amount', 'paid_amount',
+        'subtotal', 'discount', 'late_fee', 'late_fee_note', 'cancel_laundry_fee', 'total_amount', 'paid_amount',
         'discount_name', 'discount_description', 'discount_type', 'discount_value', // ← BARU: metadata diskon manual (proses retur)
         'overdue_days',
         'payment_status', 'rental_status',
         'notes', 'qr_code',
+        'cancel_reason', 'cancelled_by', 'cancelled_at',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class Rental extends Model
         'return_due_date'    => 'date',
         'actual_return_date' => 'date',
         'returned_at'        => 'datetime',
+        'cancelled_at'       => 'datetime',
         'subtotal'           => 'decimal:2',
         'discount'           => 'decimal:2',
         'discount_value'     => 'decimal:2', // ← BARU
@@ -103,6 +105,11 @@ class Rental extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     /** Paket sewa yang digunakan — BARU */
@@ -203,22 +210,7 @@ class Rental extends Model
      */
     public function getLiveLateFeeAttribute(): float
     {
-        if (!$this->return_due_date) return 0;
-
-        $dueDate = $this->return_due_date->startOfDay();
-        $today   = now()->startOfDay();
-
-        if (!$today->gt($dueDate)) return 0;
-
-        $lateDays = (int) $dueDate->diffInDays($today);
-
-        if ($this->package) {
-            return $this->package->calculatePenalty((float) $this->subtotal, $lateDays);
-        }
-
-        // Fallback flat per hari dari settings
-        $finePerDay = (int) (\DB::table('settings')->where('key', 'fine_per_day')->value('value') ?? 10000);
-        return $lateDays * $finePerDay;
+        return (float) $this->late_fee;
     }
 
         public function getLiveLateDaysAttribute(): int
@@ -229,6 +221,34 @@ class Rental extends Model
         $today   = now()->startOfDay();
 
         return $today->gt($dueDate) ? (int) $dueDate->diffInDays($today) : 0;
+    }
+
+    public function getDueAlertAttribute(): ?array
+    {
+        if (!in_array($this->rental_status, ['active', 'overdue']) || !$this->return_due_date) {
+            return null;
+        }
+
+        $today = now()->startOfDay();
+        $due   = $this->return_due_date->copy()->startOfDay();
+
+        if ($due->lt($today)) {
+            $daysLate = (int) $due->diffInDays($today);
+            return ['level' => 'overdue', 'label' => "{$daysLate} hari telat", 'days' => $daysLate];
+        }
+        if ($due->eq($today)) {
+            return ['level' => 'today', 'label' => 'Jatuh tempo hari ini', 'days' => 0];
+        }
+        if ($due->eq($today->copy()->addDay())) {
+            return ['level' => 'tomorrow', 'label' => 'Jatuh tempo besok', 'days' => 1];
+        }
+
+        $daysLeft = (int) $today->diffInDays($due);
+        if ($daysLeft <= 3) {
+            return ['level' => 'soon', 'label' => "{$daysLeft} hari lagi", 'days' => $daysLeft];
+        }
+
+        return null;
     }
 
     // ─── Scopes ───────────────────────────────────────────────────────────────

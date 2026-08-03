@@ -14,7 +14,7 @@ class Customer extends Model
 
     protected $fillable = [
         'branch_id', 'name', 'phone', 'address',
-        'id_number', 'photo', 'id_photo',
+        'id_number', 'photo', 'id_photo', 'id_photo_type',
         'chest', 'waist', 'hip', 'height', 'weight',
         'suit_size', 'shirt_size', 'trouser_size', 'shoe_size',
         'body_notes', 'notes', 'is_blacklisted', 'blacklist_reason',
