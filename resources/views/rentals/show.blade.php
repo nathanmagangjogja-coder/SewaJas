@@ -30,7 +30,7 @@
             @endif
 
             @can('cancel', $rental)
-            @if($rental->rental_status === 'waiting')
+            @if(!in_array($rental->rental_status, ['active', 'overdue', 'returned', 'cancelled', 'menunggu_laundry', 'dalam_laundry', 'siap_disewakan']))
             <button @click="openCancel()" class="btn-secondary text-sm"
                     style="color: #DC2626; border-color: #FCA5A5">
                 <i data-lucide="x-circle" class="w-4 h-4"></i>
@@ -86,47 +86,6 @@
         <div>
             <p class="font-semibold text-sm" style="color: #C0392B">Penyewaan Melewati Jatuh Tempo!</p>
             <p class="text-sm" style="color: #E74C3C">Sudah <strong>{{ $rental->overdue_days }} hari</strong> terlambat dari {{ $rental->return_due_date->format('d M Y') }}</p>
-        </div>
-    </div>
-    {{-- BARU: alert jatuh tempo (hari ini/besok/mendekati) — pakai accessor
-         $rental->due_alert yang sama dengan yang sudah dipakai di daftar
-         penyewaan, supaya konsisten dan sekarang juga terlihat di halaman
-         detail (sebelumnya cuma muncul kalau sudah overdue). --}}
-    @elseif($rental->due_alert)
-    <div class="flex items-center gap-3 p-4 rounded-xl border"
-         style="background: {{ $rental->due_alert['level'] === 'today' ? '#FFF7ED' : '#FFFBEB' }};
-                border-color: {{ $rental->due_alert['level'] === 'today' ? '#FED7AA' : '#FDE68A' }};">
-        <i data-lucide="{{ $rental->due_alert['level'] === 'today' ? 'alarm-clock' : 'clock-alert' }}"
-           class="w-5 h-5 flex-shrink-0"
-           style="color: {{ $rental->due_alert['level'] === 'today' ? '#C2410C' : '#B45309' }}"></i>
-        <div>
-            <p class="font-semibold text-sm"
-               style="color: {{ $rental->due_alert['level'] === 'today' ? '#C2410C' : '#B45309' }}">
-                {{ $rental->due_alert['label'] }}
-            </p>
-            <p class="text-sm" style="color: {{ $rental->due_alert['level'] === 'today' ? '#EA580C' : '#D97706' }}">
-                Batas pengembalian: {{ $rental->return_due_date->format('d M Y') }}
-            </p>
-        </div>
-    </div>
-    @endif
-
-    {{-- ===== SEBAB PEMBATALAN (supaya "Rp 0 / Belum Bayar + DIBATALKAN" tidak bikin bingung) ===== --}}
-    @if($rental->rental_status === 'cancelled')
-    <div class="rounded-xl p-4 flex items-start gap-2.5" style="background: #FEF2F2; border: 1px solid #FECACA">
-        <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5" style="color: #DC2626"></i>
-        <div class="text-xs" style="color: #7F1D1D">
-            <p class="font-semibold mb-0.5">
-                Dibatalkan{{ $rental->cancelled_at ? ' pada ' . $rental->cancelled_at->format('d M Y, H:i') : '' }}
-                @if($rental->cancelledBy?->name)
-                    oleh {{ $rental->cancelledBy->name }}
-                @endif
-            </p>
-            <p>Alasan: {{ $rental->cancel_reason ?: 'Tidak diisi oleh admin.' }}</p>
-            <p class="mt-1">
-                Dibatalkan sebelum aktif — tagihan otomatis menjadi <strong>Rp 0</strong> dan stok barang
-                langsung dikembalikan ke inventory tanpa proses laundry (barang belum sempat dipakai).
-            </p>
         </div>
     </div>
     @endif
@@ -1209,10 +1168,7 @@
             <div class="p-4 space-y-3">
                 <div class="rounded-xl p-3" style="background: #FEF2F2; border: 1px solid #FECACA">
                     <p class="text-xs" style="color: #991B1B">
-                        Penyewaan <strong>{{ $rental->invoice_number }}</strong> akan dibatalkan. Karena belum
-                        aktif/belum diserahkan ke customer, stok barang akan langsung dikembalikan ke inventory
-                        (tanpa laundry) dan tagihan otomatis menjadi <strong>Rp 0</strong>. Tindakan ini tidak
-                        bisa dibatalkan (undo).
+                        Penyewaan <strong>{{ $rental->invoice_number }}</strong> akan dibatalkan. Barang belum pernah dipakai — stok langsung dikembalikan dan total tagihan dinolkan. Tindakan ini tidak bisa dibatalkan (undo).
                     </p>
                 </div>
 
@@ -1267,7 +1223,6 @@ function rentalDetail() {
         discountLoading: false,
         cancelLoading: false,
         cancelReason: '',
-        cancelLaundryFee: 0,
 
         paymentMethod: 'cash',
         paymentChannel: '',      // nama bank (transfer) ATAU bank/e-wallet (qris)
@@ -1343,7 +1298,6 @@ function rentalDetail() {
             this.showCancelModal = false;
             this.cancelLoading = false;
             this.cancelReason = '';
-            this.cancelLaundryFee = 0;
             document.body.style.overflow = '';
         },
         openWaPreview() {

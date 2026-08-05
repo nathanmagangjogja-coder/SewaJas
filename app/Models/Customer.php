@@ -14,7 +14,7 @@ class Customer extends Model
 
     protected $fillable = [
         'branch_id', 'name', 'phone', 'address',
-        'id_number', 'photo', 'id_photo', 'id_photo_type',
+        'id_number', 'photo', 'id_photo', 'id_photo_type', 'id_photo_reusable_until',
         'chest', 'waist', 'hip', 'height', 'weight',
         'suit_size', 'shirt_size', 'trouser_size', 'shoe_size',
         'body_notes', 'notes', 'is_blacklisted', 'blacklist_reason',
@@ -22,6 +22,7 @@ class Customer extends Model
 
     protected $casts = [
         'is_blacklisted' => 'boolean',
+        'id_photo_reusable_until' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -68,6 +69,16 @@ class Customer extends Model
             . '&color=2B2B2B'
             . '&size=128'
             . '&bold=true';
+    }
+
+    public function getIsIdPhotoReusableAttribute(): bool
+    {
+        if (!$this->id_photo) {
+            return false;
+        }
+
+        return $this->id_photo_reusable_until === null
+            || $this->id_photo_reusable_until->isFuture();
     }
 
     public function getTotalRentalsAttribute(): int

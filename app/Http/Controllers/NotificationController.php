@@ -22,6 +22,7 @@ class NotificationController extends Controller
             'icon_name'  => $n->icon_name,
             'icon_class' => $n->icon_class,
             'meta'       => $n->meta,
+            'summary'    => is_array($n->meta) ? ($n->meta['summary'] ?? null) : null,
             'action_url' => $n->action_url,
         ]);
 

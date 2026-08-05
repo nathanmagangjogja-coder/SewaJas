@@ -223,6 +223,17 @@ class Rental extends Model
         return $today->gt($dueDate) ? (int) $dueDate->diffInDays($today) : 0;
     }
 
+    /**
+     * Dipakai RentalService::cancelRental() untuk menentukan apakah
+     * pembatalan ini butuh biaya laundry (barang sudah sempat di tangan
+     * customer) atau bisa langsung dibatalkan tanpa biaya (belum pernah
+     * dipakai sama sekali, status masih 'waiting').
+     */
+    public function getIsCancellableWithoutFeeAttribute(): bool
+    {
+        return !in_array($this->rental_status, ['active', 'overdue']);
+    }
+
     public function getDueAlertAttribute(): ?array
     {
         if (!in_array($this->rental_status, ['active', 'overdue']) || !$this->return_due_date) {

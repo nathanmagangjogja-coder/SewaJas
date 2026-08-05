@@ -39,7 +39,19 @@ class RentalController extends Controller
         $query = Rental::with(['customer', 'items', 'createdBy', 'package'])
             ->whereHas('customer')
             ->when(!$user->isSuperAdmin(), fn($q) => $q->where('branch_id', $user->branch_id))
-            ->when($request->status, fn($q) => $q->where('rental_status', $request->status))
+            ->when($request->status, function ($q) use ($request) {
+                // "today" dari kartu dashboard "Penyewaan Masuk · Hari Ini" berarti
+                // "dibuat/masuk hari ini" (filter tanggal), BUKAN rental_status.
+                // Sebelumnya query ini memperlakukan 'today' sebagai nilai
+                // rental_status (yang tidak valid) -> hasil selalu kosong ->
+                // memicu tampilan empty-state -> 500 karena partial view-nya
+                // belum ada (sudah dibuatkan filenya, lihat empty-state.blade.php).
+                if ($request->status === 'today') {
+                    $q->whereDate('rental_date', now('Asia/Jakarta')->toDateString());
+                } else {
+                    $q->where('rental_status', $request->status);
+                }
+            })
             ->when($request->payment_status, fn($q) => $q->where('payment_status', $request->payment_status))
             ->when($request->search, fn($q) => $q->where(function ($q2) use ($request) {
                 $q2->where('invoice_number', 'like', "%{$request->search}%")
@@ -500,11 +512,23 @@ class RentalController extends Controller
                     })
                     ->exists();
 
-                $customer->update([
-                    'id_photo_reusable_until' => $hasOtherActiveRental
-                        ? now()->addMinutes(30)
-                        : now()->subSecond(),
-                ]);
+                if ($hasOtherActiveRental) {
+                    $customer->update([
+                        'id_photo_reusable_until' => now()->addMinutes(30),
+                    ]);
+                } else {
+                    if ($customer->id_photo) {
+                        try {
+                            Storage::disk('public')->delete($customer->id_photo);
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                    $customer->update([
+                        'id_photo'                => null,
+                        'id_photo_type'           => null,
+                        'id_photo_reusable_until' => null,
+                    ]);
+                }
             }
         });
 

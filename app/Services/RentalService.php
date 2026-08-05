@@ -443,7 +443,11 @@ class RentalService
                         Storage::disk('public')->delete($customer->id_photo);
                     } catch (\Throwable $e) {
                     }
-                    $customer->update(['id_photo' => null, 'id_photo_type' => null]);
+                    $customer->update([
+                        'id_photo'                => null,
+                        'id_photo_type'           => null,
+                        'id_photo_reusable_until' => null,
+                    ]);
                 }
             }
 
@@ -506,6 +510,15 @@ class RentalService
                 }
 
                 $newTotal = 0.0;
+
+                // ── Aturan reuse KTP setelah pembatalan sebelum aktif ───────────
+                // Kalau customer masih punya sewa AKTIF LAIN (KTP fisiknya masih
+                // tertahan di toko untuk sewa itu), foto KTP tersimpan masih boleh
+                // dipakai ulang otomatis, tapi cuma 30 menit dari sekarang (untuk
+                // jaga-jaga kalau staf mau langsung buatkan transaksi baru).
+                // Kalau TIDAK ada sewa aktif lain sama sekali, berarti tidak ada
+                // alasan KTP fisik masih di toko -> reuse langsung dimatikan,
+                // customer wajib scan/upload ulang di transaksi berikutnya.
             }
 
             $rental->update([
@@ -529,6 +542,38 @@ class RentalService
                     default => Rental::PAYMENT_PARTIAL,
                 },
             ]);
+
+            $customer = $rental->customer;
+            if ($customer) {
+                $hasOtherActiveRental = $customer->rentals()
+                    ->where('id', '!=', $rental->id)
+                    ->where(function ($q) {
+                        $q->where('rental_status', Rental::STATUS_ACTIVE)
+                          ->orWhere(function ($q2) {
+                              $q2->where('rental_status', Rental::STATUS_OVERDUE)
+                                 ->where('payment_status', Rental::PAYMENT_PAID);
+                          });
+                    })
+                    ->exists();
+
+                if ($hasOtherActiveRental) {
+                    $customer->update([
+                        'id_photo_reusable_until' => now('Asia/Jakarta')->addMinutes(30),
+                    ]);
+                } else {
+                    if ($customer->id_photo) {
+                        try {
+                            Storage::disk('public')->delete($customer->id_photo);
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                    $customer->update([
+                        'id_photo'                => null,
+                        'id_photo_type'           => null,
+                        'id_photo_reusable_until' => null,
+                    ]);
+                }
+            }
 
             $this->logActivity('cancel_rental', $rental,
                 $wasActive

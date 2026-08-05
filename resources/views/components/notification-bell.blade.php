@@ -122,6 +122,7 @@
                             <span class="notif-title" x-text="notif.title"></span>
                             <span class="notif-time" x-text="notif.time_ago"></span>
                         </div>
+                        <p class="notif-summary text-xs text-slate-500 mt-1" x-show="notif.summary" x-text="notif.summary"></p>
                         <p class="notif-msg" x-text="notif.message"></p>
                         <span
                             x-show="notif.meta && notif.meta.invoice_no"
