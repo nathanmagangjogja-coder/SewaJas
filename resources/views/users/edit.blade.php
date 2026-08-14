@@ -200,8 +200,8 @@
 
                     {{-- Cabang --}}
                     <div id="branch-wrap">
-                        <label class="block text-sm font-medium mb-1.5" style="color:var(--text-dark)">Cabang</label>
-                        <select name="branch_id" class="form-input @error('branch_id') border-red-400 @enderror">
+                        <label class="block text-sm font-medium mb-1.5" style="color:var(--text-dark)">Cabang <span class="text-red-500">*</span></label>
+                        <select name="branch_id" id="branch-select" required class="form-input @error('branch_id') border-red-400 @enderror">
                             <option value="">Pilih Cabang</option>
                             @foreach($branches as $b)
                             <option value="{{ $b->id }}" {{ old('branch_id', $user->branch_id) == $b->id ? 'selected' : '' }}>
@@ -295,9 +295,17 @@
         const wrap = document.getElementById('branch-wrap');
         const info = document.getElementById('role-info');
         const text = document.getElementById('role-info-text');
+        const branchSelect = document.getElementById('branch-select');
 
         wrap.style.opacity       = role === 'super_admin' ? '0.4' : '1';
         wrap.style.pointerEvents = role === 'super_admin' ? 'none' : 'auto';
+
+        // FIX: super_admin tidak wajib cabang, admin_toko & sales wajib
+        if (role === 'super_admin') {
+            branchSelect.required = false;
+        } else {
+            branchSelect.required = true;
+        }
 
         if (roleDesc[role]) {
             text.textContent = roleDesc[role];

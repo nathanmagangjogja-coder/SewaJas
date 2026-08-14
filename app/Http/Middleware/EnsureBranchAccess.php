@@ -6,51 +6,49 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class EnsureBranchAccess
+/**
+ * EnsureBranchScope
+ * Memastikan user yang bukan super_admin hanya bisa akses
+ * data yang sesuai dengan branch_id mereka.
+ */
+class EnsureBranchScope
 {
-    /**
-     * Pastikan admin_toko dan sales tidak bisa akses data branch lain.
-     * super_admin bebas akses semua branch.
-     *
-     * Cara pakai: ->middleware('branch.access')
-     *
-     * Middleware ini mengecek:
-     * 1. Route parameter  : /rentals/{rental}  → cek rental->branch_id
-     * 2. Query string     : ?branch_id=2
-     * 3. Request body     : branch_id di form POST
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        if (! $user || $user->isSuperAdmin()) {
+        if (!$user) {
+            return redirect()->route('login');
+        }
+
+        // Super admin boleh akses semua cabang
+        if ($user->hasRole('super_admin')) {
             return $next($request);
         }
 
-        // Cek branch_id dari berbagai sumber
-        $requestedBranchId = $this->resolveBranchId($request);
+        // Admin & Sales WAJIB punya branch_id.
+        // FIX: sebelumnya user langsung kena abort(403) polos tanpa arahan jelas,
+        // dan tetap dalam sesi login (bingung: sudah login tapi semua halaman 403).
+        // Sekarang: logout paksa + redirect ke halaman login dengan pesan yang
+        // jelas, supaya user tahu harus menghubungi Super Admin, bukan mengira
+        // aplikasinya error / mencoba login berulang-ulang.
+        if (is_null($user->branch_id)) {
+            auth()->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
 
-        if ($requestedBranchId && ! $user->canAccessBranch((int) $requestedBranchId)) {
-            abort(403, 'Anda hanya dapat mengakses data cabang Anda sendiri.');
+            return redirect()->route('login')->with(
+                'error',
+                'Akun Anda belum dikaitkan dengan cabang manapun. Hubungi Super Admin untuk melengkapi data cabang sebelum bisa login.'
+            );
+        }
+
+        // User tidak aktif
+        if (!$user->is_active) {
+            auth()->logout();
+            return redirect()->route('login')->with('error', 'Akun Anda telah dinonaktifkan.');
         }
 
         return $next($request);
-    }
-
-    private function resolveBranchId(Request $request): ?int
-    {
-        // Dari route model binding (misal: /rentals/{rental})
-        $rental = $request->route('rental');
-        if ($rental && isset($rental->branch_id)) {
-            return (int) $rental->branch_id;
-        }
-
-        // Dari query string atau form input
-        $branchId = $request->input('branch_id') ?? $request->route('branch_id');
-        if ($branchId) {
-            return (int) $branchId;
-        }
-
-        return null;
     }
 }

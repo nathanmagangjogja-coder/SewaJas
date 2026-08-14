@@ -42,6 +42,8 @@ class ActivityLog extends Model
         'update_rental'          => 'Edit Penyewaan',
         'cancel_rental'          => 'Batalkan Penyewaan',
         'return_rental'          => 'Barang Dikembalikan',
+        'assess_return'          => 'Kondisi Barang Dicatat (Menunggu Pembayaran)',
+        'set_late_fee'           => 'Tentukan Denda Keterlambatan',
         'delete_rental'          => 'Hapus Penyewaan',
         // Pembayaran
         'process_payment'        => 'Proses Pembayaran',
@@ -62,6 +64,7 @@ class ActivityLog extends Model
         'update_customer'        => 'Edit Customer',
         'delete_customer'        => 'Hapus Customer',
         'delete_customer_force'  => 'Hapus Customer Permanen',
+        'export_customers'       => 'Export Data Customer',
         // User
         'create_user'            => 'Tambah Pengguna',
         'update_user'            => 'Edit Pengguna',

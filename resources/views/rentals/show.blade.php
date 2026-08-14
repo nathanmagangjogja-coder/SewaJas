@@ -13,6 +13,25 @@
 @section('content')
 <div class="space-y-4" x-data="rentalDetail()">
 
+    @php
+        $requirePaymentBlock = session('require_payment') && $rental->remaining_amount > 0;
+        // FIX: sebelumnya default type/title HANYA mengikuti session flash
+        // (hanya benar sesaat setelah redirect dari processReturn). Kalau
+        // user refresh / balik lagi ke halaman ini nanti, session flash-nya
+        // sudah hilang tapi kekurangan bayarnya masih ada — sekarang
+        // fallback ke state asli rental (needs_return_payment) supaya modal
+        // "Bayar" selalu menunjukkan konteks yang benar.
+        // FIX BUG (penyebab 500 error): payments.type di database adalah ENUM
+        // ['rental','deposit','late_fee','damage_fee','refund'] — HARUS
+        // 'damage_fee', bukan 'damage', kalau tidak INSERT payment akan gagal
+        // (SQLSTATE 1265) begitu form ini disubmit.
+        $paymentFormType = session('payment_type', $rental->needs_return_payment ? 'damage_fee' : 'rental');
+        $paymentFormTitle = match ($paymentFormType) {
+            'damage_fee' => 'Bayar Kekurangan Tagihan',
+            default => 'Input Pembayaran',
+        };
+    @endphp
+
     {{-- ===== ACTION BAR ===== --}}
         <div class="flex flex-col gap-2 sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 border-b"
          style="background: var(--bg-main); border-color: var(--border);">
@@ -22,7 +41,12 @@
                 <span class="hidden sm:inline">Kembali</span>
             </a>
 
-            @if(in_array($rental->rental_status, ['waiting', 'active', 'overdue']))
+            {{-- FIX: tombol "Bayar" ini KHUSUS untuk tagihan sewa awal (waiting/
+                 active). Untuk rental overdue, "Bayar" lama selalu menampilkan
+                 "Sisa Tagihan Rp 0" (membingungkan, karena sewa awal memang
+                 sudah lunas) tanpa memberi jalan untuk membayar denda sama
+                 sekali. Sekarang overdue punya tombol sendiri di bawah. --}}
+            @if($rental->rental_status === 'waiting' || ($rental->rental_status === 'active' && $rental->remaining_amount > 0))
             <button @click="openPayment()" class="btn-primary text-sm">
                 <i data-lucide="credit-card" class="w-4 h-4"></i>
                 Bayar
@@ -39,12 +63,44 @@
             @endif
             @endcan
 
-            @if(in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status === 'paid')
+            @if($rental->can_be_returned)
             <button @click="openReturn()" class="btn-primary text-sm"
                     style="background: linear-gradient(135deg, #10B981, #059669); box-shadow: 0 2px 8px rgba(16,185,129,0.3)">
                 <i data-lucide="package-check" class="w-4 h-4"></i>
                 <span class="hidden xs:inline">Proses Pengembalian</span>
                 <span class="xs:hidden">Kembali</span>
+            </button>
+            @endif
+
+            @if($rental->needs_late_fee_confirmation)
+            {{-- FITUR BARU: tombol khusus untuk menentukan nominal denda,
+                 langsung di halaman ini (tidak perlu pindah ke halaman scan). --}}
+            <button @click="openLateFeeSet()" type="button"
+                    class="btn-primary text-sm" style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                <i data-lucide="banknote" class="w-4 h-4"></i>
+                <span class="hidden xs:inline">Tentukan Denda</span>
+                <span class="xs:hidden">Denda</span>
+            </button>
+            @elseif($rental->needs_late_fee_payment)
+            {{-- FITUR BARU: tombol khusus untuk membayar denda yang sudah
+                 ditentukan — beda dari tombol "Bayar" biasa (sewa awal). --}}
+            <button @click="openLateFeePayment()" type="button"
+                    class="btn-primary text-sm" style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                <i data-lucide="alarm-clock" class="w-4 h-4"></i>
+                <span class="hidden xs:inline">Bayar Denda</span>
+                <span class="xs:hidden">Denda</span>
+            </button>
+            @elseif($rental->needs_return_payment)
+            {{-- FITUR BARU: kondisi barang sudah dicatat (mis. ada yang
+                 rusak/hilang dibebankan tunai) tapi belum lunas — barang
+                 SENGAJA belum dianggap "dikembalikan". Tombol ini membuka
+                 modal pembayaran yang sama, dengan konteks "damage" (lihat
+                 $requirePaymentBlock/$paymentFormType di atas). --}}
+            <button @click="openPayment()" type="button"
+                    class="btn-primary text-sm" style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                <i data-lucide="banknote" class="w-4 h-4"></i>
+                <span class="hidden xs:inline">Bayar Kekurangan (Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }})</span>
+                <span class="xs:hidden">Bayar</span>
             </button>
             @endif
         </div>
@@ -105,12 +161,6 @@
                             <p class="font-mono text-sm mt-0.5" style="color: var(--primary)">{{ $rental->invoice_number }}</p>
                         </div>
 
-                        @if(in_array(auth()->user()->role ?? null, ['admin_toko', 'super_admin']) && !in_array($rental->rental_status, ['returned', 'cancelled']))
-                        <button @click="openDiscount()" class="btn-secondary text-xs whitespace-nowrap">
-                            <i data-lucide="badge-percent" class="w-3.5 h-3.5"></i>
-                            {{ $rental->discount > 0 ? 'Ubah Diskon' : 'Tambah Diskon' }}
-                        </button>
-                        @endif
                     </div>
 
                     <div class="flex gap-2 flex-wrap">
@@ -124,6 +174,15 @@
                         <span class="badge badge-purple text-sm px-3 py-1.5 font-semibold">
                             <i data-lucide="badge-percent" class="w-3.5 h-3.5"></i>
                             Diskon Rp {{ number_format($rental->discount, 0, ',', '.') }}
+                        </span>
+                        @endif
+                        @if($rental->needs_return_payment)
+                        {{-- FITUR BARU: kondisi barang sudah dicatat tapi tagihan
+                             (biasanya denda rusak/hilang) belum lunas -> barang
+                             SENGAJA belum dianggap selesai dikembalikan. --}}
+                        <span class="badge text-sm px-3 py-1.5 font-semibold" style="background:#C0392B;color:#fff">
+                            <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                            Belum Bisa Dikembalikan — Bayar Dulu
                         </span>
                         @endif
                     </div>
@@ -190,6 +249,15 @@
             </div>
 
             {{-- Rental Items Table --}}
+            @if($requirePaymentBlock)
+            <div class="card p-4">
+                <p class="text-sm" style="color: var(--text-dark)">Pengembalian dicatat, namun ada sisa tagihan sebesar <strong>Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}</strong>.</p>
+                <p class="text-xs mt-2" style="color: var(--text-soft)">Transaksi akan dikunci sampai pelunasan dilakukan. Silakan klik tombol Bayar untuk menyelesaikan tagihan.</p>
+                <div class="mt-4">
+                    <button type="button" @click="openPayment()" class="btn-primary">Bayar Sekarang</button>
+                </div>
+            </div>
+            @else
             <div class="card overflow-hidden">
                 <div class="p-4 sm:p-5 border-b" style="border-color: var(--border)">
                     <h3 class="font-playfair font-semibold text-base" style="color: var(--text-dark)">Barang Disewa</h3>
@@ -235,8 +303,23 @@
                                     @if($item->damage_fee > 0)
                                     <p class="text-[10px] font-semibold mt-0.5" style="color:#C0392B">+Rp {{ number_format($item->damage_fee, 0, ',', '.') }}</p>
                                     @endif
+                                    @elseif($item->return_condition && $rental->needs_return_payment)
+                                    {{-- FITUR BARU: kondisi sudah dicatat (misal rusak/hilang) TAPI
+                                         belum lunas -> barang SENGAJA belum ditandai "Kembali".
+                                         Beda dari "Disewa" biasa supaya staf paham kenapa. --}}
+                                    <span class="badge" style="background:#FFF1F0;color:#C0392B;border:1px solid #FECACA">
+                                        <i data-lucide="lock" class="w-3 h-3 inline-block -mt-0.5 mr-0.5"></i>Menunggu Bayar
+                                    </span>
+                                    @if($item->return_condition === 'damaged')
+                                    <span class="badge badge-yellow text-[10px] mt-1 block">Rusak</span>
+                                    @elseif($item->return_condition === 'lost')
+                                    <span class="badge badge-red text-[10px] mt-1 block">Hilang</span>
+                                    @endif
+                                    @if($item->damage_fee > 0)
+                                    <p class="text-[10px] font-semibold mt-0.5" style="color:#C0392B">+Rp {{ number_format($item->damage_fee, 0, ',', '.') }}</p>
+                                    @endif
                                     @else
-                                    <span class="badge badge-blue">Dipinjam</span>
+                                    <span class="badge badge-blue">Disewa</span>
                                     @endif
                                 </td>
                             </tr>
@@ -295,8 +378,15 @@
                                 @elseif($item->return_condition === 'lost')
                                 <span class="badge badge-red text-[10px]">Hilang</span>
                                 @endif
+                                @elseif($item->return_condition && $rental->needs_return_payment)
+                                <span class="badge text-[10px]" style="background:#FFF1F0;color:#C0392B;border:1px solid #FECACA">Menunggu Bayar</span>
+                                @if($item->return_condition === 'damaged')
+                                <span class="badge badge-yellow text-[10px]">Rusak</span>
+                                @elseif($item->return_condition === 'lost')
+                                <span class="badge badge-red text-[10px]">Hilang</span>
+                                @endif
                                 @else
-                                <span class="badge badge-blue text-[10px]">Dipinjam</span>
+                                <span class="badge badge-blue text-[10px]">Disewa</span>
                                 @endif
                             </div>
                             @if($item->damage_fee > 0)
@@ -384,7 +474,9 @@
             </div>
             @endif
 
-            {{-- Payment History --}}
+                @endif
+                {{-- Payment History --}}
+            @unless($requirePaymentBlock)
             @if($rental->payments->count() > 0)
             <div class="card overflow-hidden">
                 <div class="p-4 sm:p-5 border-b" style="border-color: var(--border)">
@@ -402,6 +494,7 @@
                                 <th class="text-left">Waktu</th>
                                 <th class="text-right">Jumlah</th>
                                 <th class="text-left">Diterima</th>
+                                <th class="text-left">Catatan</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -418,18 +511,25 @@
                                 <td class="text-xs whitespace-nowrap" style="color: var(--text-soft)">{{ $payment->paid_at->format('d M Y H:i') }}</td>
                                 <td class="text-right font-bold whitespace-nowrap" style="color: #15803D">Rp {{ number_format($payment->amount, 0, ',', '.') }}</td>
                                 <td class="text-xs" style="color: var(--text-soft)">{{ $payment->receivedBy->name }}</td>
+                                <td class="text-xs" style="color: var(--text-soft)">
+                                    @if($payment->notes)
+                                        {{ $payment->notes }}
+                                    @else
+                                        -
+                                    @endif
+                                </td>
                             </tr>
                             @endforeach
                         </tbody>
                         <tfoot>
                             <tr style="background: var(--bg-main)">
-                                <td colspan="4" class="text-right font-bold py-3 px-4" style="color: var(--text-soft)">Total Dibayar</td>
+                                <td colspan="5" class="text-right font-bold py-3 px-4" style="color: var(--text-soft)">Total Dibayar</td>
                                 <td class="text-right py-3 px-4 font-bold" style="color: #15803D; font-size: 1rem">Rp {{ number_format($rental->paid_amount, 0, ',', '.') }}</td>
                                 <td></td>
                             </tr>
                             @if($rental->remaining_amount > 0)
                             <tr style="background: #FFF1F0">
-                                <td colspan="4" class="text-right font-bold py-2 px-4" style="color: #C0392B">Sisa Tagihan</td>
+                                <td colspan="5" class="text-right font-bold py-2 px-4" style="color: #C0392B">Sisa Tagihan</td>
                                 <td class="text-right py-2 px-4 font-bold" style="color: #C0392B">Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}</td>
                                 <td></td>
                             </tr>
@@ -454,6 +554,9 @@
                             <span class="text-xs" style="color: var(--text-soft)">{{ $payment->paid_at->format('d M Y H:i') }}</span>
                         </div>
                         <div class="text-xs mt-0.5" style="color: var(--text-soft)">· {{ $payment->receivedBy->name }}</div>
+                        @if($payment->notes)
+                        <div class="text-xs mt-1" style="color: var(--text-soft)">Catatan: {{ $payment->notes }}</div>
+                        @endif
                     </div>
                     @endforeach
                     <div class="p-4" style="background: var(--bg-main)">
@@ -471,6 +574,7 @@
                 </div>
             </div>
             @endif
+            @endunless
         </div>
 
         {{-- ===== RIGHT COLUMN ===== --}}
@@ -504,9 +608,9 @@
 
                         @if($rental->customer->id_photo)
             <div class="card p-4 sm:p-5">
-                <h3 class="font-playfair font-semibold text-sm mb-3" style="color: var(--text-dark)">Foto KTP</h3>
+                <h3 class="font-playfair font-semibold text-sm mb-3" style="color: var(--text-dark)">Foto jaminan</h3>
                 <div class="relative">
-                    <img src="{{ asset('storage/' . $rental->customer->id_photo) }}" alt="Foto KTP"
+                    <img src="{{ asset('storage/' . $rental->customer->id_photo) }}" alt="Foto Jaminan"
                          class="w-full rounded-xl object-cover cursor-zoom-in" style="max-height: 220px;"
                          @click="openKtpViewer('{{ asset('storage/' . $rental->customer->id_photo) }}')">
                     <button type="button"
@@ -523,6 +627,7 @@
             @endif
 
             {{-- Guarantee --}}
+            @unless($requirePaymentBlock)
             @if($rental->guarantees->count() > 0)
             <div class="card p-4 sm:p-5">
                 <h3 class="font-playfair font-semibold text-sm mb-4" style="color: var(--text-dark)">Jaminan</h3>
@@ -547,6 +652,7 @@
                 @endforeach
             </div>
             @endif
+            @endunless
 
             {{-- QR Code --}}
             @if($rental->qr_code)
@@ -595,7 +701,7 @@
                 <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEF3C7">
                     <i data-lucide="credit-card" class="w-3.5 h-3.5" style="color: var(--primary)"></i>
                 </div>
-                <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Input Pembayaran</h3>
+                <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">{{ $paymentFormTitle }}</h3>
             </div>
             <button @click="closePayment()"
                     class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
@@ -623,6 +729,7 @@
             <form method="POST" action="{{ route('rentals.payment', $rental) }}" class="space-y-3"
                   @submit="paymentLoading = true">
                 @csrf
+                <input type="hidden" name="type" value="{{ $paymentFormType }}">
 
                 {{-- Jumlah Bayar --}}
                 <div>
@@ -631,8 +738,14 @@
                     </label>
                     <div class="relative">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold" style="color: var(--text-soft)">Rp</span>
-                        <input type="number" name="amount" required min="1"
-                               value="{{ $rental->remaining_amount }}"
+                        {{-- FIX: numerals only. type="number" ternyata masih bisa
+                             kemasukan huruf lewat paste/beberapa browser. Dipakai
+                             type="text" + inputmode="numeric" + strip karakter
+                             non-digit on-input, supaya benar-benar tidak bisa
+                             diisi huruf sama sekali. --}}
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" name="amount" required
+                               value="{{ (int) $rental->remaining_amount }}"
+                               @input="$el.value = $el.value.replace(/[^0-9]/g, '')"
                                class="form-input w-full pl-9 font-bold text-sm"
                                style="color: var(--primary); padding-top: 0.5rem; padding-bottom: 0.5rem;">
                     </div>
@@ -711,16 +824,15 @@
                     </p>
                 </div>
 
-                {{-- No. Referensi --}}
+                {{-- Catatan umum (sebelumnya: No. Referensi) --}}
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
-                        No. Referensi
-                        <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        Catatan pelanggan
                     </label>
                     <input type="text" name="reference_number"
                            class="form-input w-full text-sm"
                            style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
-                           placeholder="No. transfer, kode QRIS...">
+                           placeholder="Contoh: minta diantar via ojek, ambil jam 18:00...">
                 </div>
 
                 <div x-show="paymentMethod === 'other'" x-cloak x-transition>
@@ -749,10 +861,6 @@
                                 <template x-for="bank in bankOptions" :key="bank"><option :value="bank" x-text="bank"></option></template>
                             </select>
                         </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-dark)">No. Referensi <span class="text-red-400">*</span></label>
-                        <input type="text" name="card_reference" class="form-input w-full text-sm" placeholder="Nomor referensi transaksi" style="padding-top:.5rem;padding-bottom:.5rem;">
                     </div>
                 </div>
 
@@ -824,117 +932,237 @@
     </div>
 </div>
 
-    {{-- ===== DISCOUNT MODAL ===== --}}
-        <div x-show="showDiscountModal"
+    {{-- ===== MODAL: TENTUKAN DENDA (langkah 1 dari 2, dipindah dari halaman
+         scan agar bisa langsung dari sini juga) ===== --}}
+    <div x-show="showLateFeeSetModal"
          x-cloak
-         @click.self="closeDiscount()"
-         @keydown.escape.window="closeDiscount()"
-         class="fixed inset-0 z-50 flex items-center justify-center"
-         style="background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);"
+         @click.self="closeLateFeeSet()"
+         @keydown.escape.window="closeLateFeeSet()"
+         class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-16"
+         style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0"
          x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150"
          x-transition:leave-start="opacity-100"
          x-transition:leave-end="opacity-0">
-
-        <div class="modal-box w-full sm:max-w-md mx-0 sm:mx-4 p-5 sm:p-6 rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto"
-             @click.stop
+        <div class="modal-box w-full max-w-sm rounded-2xl" @click.stop
+             style="max-height: 90vh; overflow-y: auto;"
              x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95"
-             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
-             x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95"
-             x-data="{ mode: 'amount', amount: {{ (int) $rental->discount }}, percent: 0, subtotal: {{ (int) $rental->subtotal }},
-                        get preview() { return this.mode === 'percent' ? Math.round(this.subtotal * (this.percent / 100)) : this.amount; } }">
-
-            <div class="w-10 h-1 rounded-full mx-auto mb-4 sm:hidden" style="background: var(--border)"></div>
-
-            <div class="flex items-center justify-between mb-5">
-                <h3 class="font-playfair font-semibold text-base" style="color: var(--text-dark)">
-                    <i data-lucide="badge-percent" class="w-4 h-4 inline-block align-[-2px]" style="color: var(--primary)"></i>
-                    Input Diskon Manual
-                </h3>
-                <button @click="closeDiscount()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors" style="color: var(--text-soft)">
-                    <i data-lucide="x" class="w-4 h-4"></i>
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100">
+            <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--border)">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEE2E2">
+                        <i data-lucide="banknote" class="w-3.5 h-3.5" style="color: #C0392B"></i>
+                    </div>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Tentukan Denda Keterlambatan</h3>
+                </div>
+                <button @click="closeLateFeeSet()"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                        style="color: var(--text-soft)">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
             </div>
-
-            <div class="p-3 rounded-xl mb-4 flex justify-between text-sm" style="background: var(--bg-main)">
-                <span style="color: var(--text-soft)">Subtotal</span>
-                <span class="font-semibold" style="color: var(--text-dark)">Rp {{ number_format($rental->subtotal, 0, ',', '.') }}</span>
+            <div class="p-4 space-y-3">
+                <p class="text-xs" style="color: var(--text-soft)">
+                    Rental ini terlambat <strong>{{ $rental->live_late_days }} hari</strong>. Tentukan nominal denda
+                    sesuai kebijakan toko — barang <strong>baru bisa diproses pengembalian</strong> setelah denda
+                    ini ditentukan &amp; dibayar lunas. Isi <strong>0</strong> kalau memang tidak ada denda.
+                </p>
+                <form method="POST" action="{{ route('rentals.late-fee.set', $rental) }}" class="space-y-3"
+                      @submit="lateFeeSetLoading = true">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Nominal Denda <span class="text-red-400">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold" style="color: var(--text-soft)">Rp</span>
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" name="late_fee" required
+                                   @input="$el.value = $el.value.replace(/[^0-9]/g, '')"
+                                   class="form-input w-full pl-9 font-bold text-sm" placeholder="0"
+                                   style="color: #C0392B; padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Catatan / Alasan <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        </label>
+                        <input type="text" name="late_fee_note" maxlength="255"
+                               class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
+                               placeholder="Cth: barang cacat produksi, keringanan diberikan">
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" @click="closeLateFeeSet()" class="btn-secondary flex-1 justify-center text-sm py-2.5">Batal</button>
+                        <button type="submit" :disabled="lateFeeSetLoading" :class="lateFeeSetLoading ? 'btn-loading' : ''"
+                                class="btn-primary flex-1 justify-center text-sm py-2.5 font-semibold"
+                                style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                            <template x-if="lateFeeSetLoading"><span class="btn-spinner"></span></template>
+                            <span x-text="lateFeeSetLoading ? '\u00A0Menyimpan...' : 'Simpan Nominal Denda'"></span>
+                        </button>
+                    </div>
+                </form>
             </div>
-
-            <form method="POST" action="{{ route('rentals.discount.update', $rental) }}"
-                  @submit="discountLoading = true">
-                @csrf
-                @method('PATCH')
-
-                {{-- Toggle nominal / persen --}}
-                <div class="flex gap-1 p-1 rounded-lg mb-3" style="background: var(--secondary)">
-                    <button type="button" @click="mode = 'amount'"
-                            class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-all"
-                            :style="mode === 'amount' ? 'background:#FFFFFF;color:var(--text-dark)' : 'color:var(--text-soft)'">
-                        Nominal (Rp)
-                    </button>
-                    <button type="button" @click="mode = 'percent'"
-                            class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-all"
-                            :style="mode === 'percent' ? 'background:#FFFFFF;color:var(--text-dark)' : 'color:var(--text-soft)'">
-                        Persentase (%)
-                    </button>
-                </div>
-
-                <input type="hidden" name="discount_mode" :value="mode">
-
-                <div class="mb-3" x-show="mode === 'amount'">
-                    <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-soft)">Jumlah Diskon (Rp)</label>
-                    <input type="number" name="discount_amount" x-model.number="amount" min="0" :max="subtotal"
-                           class="form-input w-full text-sm" placeholder="0">
-                </div>
-
-                <div class="mb-3" x-show="mode === 'percent'" x-cloak>
-                    <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-soft)">Persentase Diskon (%)</label>
-                    <input type="number" name="discount_percent" x-model.number="percent" min="0" max="100" step="0.5"
-                           class="form-input w-full text-sm" placeholder="0">
-                </div>
-
-                <div class="p-3 rounded-xl mb-3 flex justify-between items-center" style="background: #F5F3FF; border: 1px solid #DDD6FE">
-                    <span class="text-xs font-semibold" style="color: #6D28D9">Potongan</span>
-                    <span class="font-bold text-sm" style="color: #6D28D9" x-text="'-Rp ' + preview.toLocaleString('id-ID')"></span>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-soft)">
-                        Alasan Diskon <span class="font-normal">(untuk catatan audit)</span>
-                    </label>
-                    <textarea name="discount_reason" rows="2" class="form-input w-full text-sm"
-                              placeholder="Mis. diskon loyal customer, promo bundling, dll"></textarea>
-                </div>
-
-                <div class="flex gap-2">
-                    <button type="button" @click="closeDiscount()" class="btn-secondary flex-1 justify-center text-sm py-2.5">
-                        Batal
-                    </button>
-                    <button type="submit"
-                            data-no-loading
-                            :disabled="discountLoading"
-                            :class="discountLoading ? 'btn-loading' : ''"
-                            class="btn-primary flex-1 justify-center text-sm py-2.5 font-semibold">
-                        <template x-if="discountLoading">
-                            <span class="btn-spinner"></span>
-                        </template>
-                        <template x-if="!discountLoading">
-                            <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
-                        </template>
-                        <span x-text="discountLoading ? '\u00A0Menyimpan...' : 'Simpan Diskon'"></span>
-                    </button>
-                </div>
-            </form>
         </div>
     </div>
 
-    {{-- ===== RETURN MODAL ===== --}}
+    {{-- ===== MODAL: BAYAR DENDA (langkah 2 dari 2) ===== --}}
+    <div x-show="showLateFeePaymentModal"
+         x-cloak
+         @click.self="closeLateFeePayment()"
+         @keydown.escape.window="closeLateFeePayment()"
+         class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-16"
+         style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+        <div class="modal-box w-full max-w-sm rounded-2xl" @click.stop
+             style="max-height: 90vh; overflow-y: auto;"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100">
+            <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--border)">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEE2E2">
+                        <i data-lucide="alarm-clock" class="w-3.5 h-3.5" style="color: #C0392B"></i>
+                    </div>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Bayar Denda Keterlambatan</h3>
+                </div>
+                <button @click="closeLateFeePayment()"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                        style="color: var(--text-soft)">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-3">
+                <div class="rounded-xl p-3 relative overflow-hidden"
+                     style="background: linear-gradient(135deg, #C0392B, #E74C3C);">
+                    <p class="text-[10px] font-medium" style="color: rgba(255,255,255,0.75)">Sisa Denda Keterlambatan</p>
+                    <p class="text-xl font-bold font-playfair" style="color: white">
+                        Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
+                    </p>
+                    <p class="text-[10px] mt-0.5" style="color: rgba(255,255,255,0.65)">
+                        Ini adalah pembayaran terpisah dari pembayaran sewa sebelumnya.
+                    </p>
+                </div>
+
+                <form method="POST" action="{{ route('rentals.payment', $rental) }}" class="space-y-3"
+                      @submit="lateFeePaymentLoading = true">
+                    @csrf
+                    <input type="hidden" name="type" value="late_fee">
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Jumlah Bayar <span class="text-red-400">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold" style="color: var(--text-soft)">Rp</span>
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" name="amount" required
+                                   value="{{ (int) $rental->remaining_amount }}"
+                                   @input="$el.value = $el.value.replace(/[^0-9]/g, '')"
+                                   class="form-input w-full pl-9 font-bold text-sm"
+                                   style="color: #C0392B; padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-dark)">Metode Pembayaran</label>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            @foreach([
+                                'cash'     => ['Tunai',    'banknote'],
+                                'transfer' => ['Transfer', 'building-2'],
+                                'qris'     => ['QRIS',     'qr-code'],
+                            ] as $val => [$label, $icon])
+                            <label class="flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50"
+                                   style="border-color: var(--border)">
+                                <input type="radio" name="method" value="{{ $val }}" x-model="lateFeeMethod"
+                                       @change="lateFeeChannel = ''; lateFeeAccountNumber = ''"
+                                       {{ $val === 'cash' ? 'checked' : '' }} class="sr-only">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--bg-main)">
+                                    <i data-lucide="{{ $icon }}" class="w-4 h-4" style="color: #C0392B"></i>
+                                </div>
+                                <span class="text-[10px] font-semibold" style="color: var(--text-dark)">{{ $label }}</span>
+                            </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'transfer'" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Bank Tujuan <span class="text-red-400">*</span>
+                        </label>
+                        <select name="payment_channel" x-model="lateFeeChannel"
+                                :required="lateFeeMethod === 'transfer'"
+                                class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                            <option value="">Pilih bank...</option>
+                            <template x-for="bank in bankOptions" :key="bank">
+                                <option :value="bank" x-text="bank"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'transfer' && lateFeeChannel" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Nomor Rekening Tujuan <span class="text-red-400">*</span>
+                        </label>
+                        <input type="text" name="account_number" x-model="lateFeeAccountNumber"
+                               :required="lateFeeMethod === 'transfer' && lateFeeChannel"
+                               inputmode="numeric" placeholder="Contoh: 1234567890"
+                               class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'qris'" x-cloak x-transition>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            QRIS via <span class="text-red-400">*</span>
+                        </label>
+                        <select name="payment_channel" x-model="lateFeeChannel"
+                                :required="lateFeeMethod === 'qris'"
+                                class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
+                            <option value="">Pilih bank / e-wallet...</option>
+                            <template x-for="opt in qrisOptions" :key="opt">
+                                <option :value="opt" x-text="opt"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <div x-show="lateFeeMethod === 'qris' && lateFeeChannel" x-cloak x-transition
+                         class="flex flex-col items-center gap-2 p-3 rounded-xl" style="background: var(--bg-main)">
+                        <img src="{{ route('rentals.qris-demo.qr', $rental) }}" alt="QR QRIS"
+                             class="w-40 h-40 rounded-lg" style="background: white; padding: 8px; border: 1px solid var(--border)">
+                        <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                            Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="lateFeeChannel"></span>
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
+                            Catatan <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        </label>
+                        <input type="text" name="reference_number"
+                               class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
+                               placeholder="Contoh: minta diantar via ojek, ambil jam 18:00...">
+                    </div>
+
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" @click="closeLateFeePayment()" class="btn-secondary flex-1 justify-center text-sm py-2.5">
+                            Nanti Saja
+                        </button>
+                        <button type="submit" :disabled="lateFeePaymentLoading" :class="lateFeePaymentLoading ? 'btn-loading' : ''"
+                                class="btn-primary flex-1 justify-center text-sm py-2.5 font-semibold"
+                                style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+                            <template x-if="lateFeePaymentLoading"><span class="btn-spinner"></span></template>
+                            <span x-text="lateFeePaymentLoading ? '\u00A0Memproses...' : 'Konfirmasi Bayar Denda'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div x-show="showReturnModal"
          x-cloak
          @click.self="closeReturn()"
@@ -972,12 +1200,16 @@
             </div>
 
             <form method="POST" action="{{ route('rentals.return', $rental) }}"
-                  @submit="returnLoading = true">
+                @submit.prevent="handleReturnSubmit($event)">
                 @csrf
                 <div class="space-y-3 mb-4">
+                    @php
+                        $hasHeld = $rental->guarantees->where('status', 'held')->isNotEmpty();
+                        $firstHeldGuarantee = $rental->guarantees->where('status', 'held')->first();
+                    @endphp
                     @foreach($rental->items as $item)
                     @if(!$item->is_returned)
-                    <div class="p-3 sm:p-4 rounded-xl" style="background: var(--bg-main); border: 1px solid var(--border)">
+                    <div class="p-3 sm:p-4 rounded-xl" style="background: var(--bg-main); border: 1px solid var(--border)" data-subtotal="{{ (float) $item->subtotal }}">
                         <p class="font-semibold text-sm mb-3" style="color: var(--text-dark)">{{ $item->product_name }}</p>
                         <input type="hidden" name="items[{{ $loop->index }}][rental_item_id]" value="{{ $item->id }}">
                         <div class="grid grid-cols-3 gap-2 mb-2">
@@ -985,13 +1217,59 @@
                             <label class="flex items-center justify-center gap-1.5 p-2 rounded-lg border cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50/50"
                                    style="border-color: var(--border)">
                                 <input type="radio" name="items[{{ $loop->parent->index }}][condition]"
-                                       value="{{ $cond }}" {{ $cond === 'good' ? 'checked' : '' }} class="sr-only">
+                                       value="{{ $cond }}" {{ $cond === 'good' ? 'checked' : '' }} class="sr-only"
+                                       @change="setReturnCondition({{ $loop->parent->index }}, '{{ $cond }}')">
                                 <span class="badge {{ $badge }} text-[9px]">{{ $label }}</span>
                             </label>
                             @endforeach
                         </div>
                         <input type="text" name="items[{{ $loop->index }}][notes]"
                                class="form-input text-xs w-full" placeholder="Catatan kondisi barang...">
+
+                        <div x-show="returnConditions[{{ $loop->index }}] && returnConditions[{{ $loop->index }}] !== 'good'" x-cloak class="mt-3 space-y-2">
+                            <p class="text-xs" style="color: var(--text-soft)">Opsi penyelesaian kerugian</p>
+                            <div class="flex items-center gap-3">
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" x-model="returnPenalties[{{ $loop->index }}]" name="items[{{ $loop->index }}][penalty_resolution]" value="charge_double" class="form-radio">
+                                    <span class="text-sm">Tagih ke customer</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" x-model="returnPenalties[{{ $loop->index }}]" name="items[{{ $loop->index }}][penalty_resolution]" value="claim_guarantee" class="form-radio" @if(!$hasHeld) disabled title="Tidak ada jaminan tersimpan" @endif>
+                                    <span class="text-sm">Gunakan jaminan</span>
+                                </label>
+                            </div>
+
+                            <div class="mt-2" x-show="returnPenalties[{{ $loop->index }}] === 'charge_double'" x-cloak>
+                                {{-- FIX: sama seperti input "Jumlah Bayar" — numerals only.
+                                     x-model.number diganti update manual di @input supaya
+                                     tidak dobel-listener dengan proses strip karakter
+                                     non-digit (keduanya sama-sama pakai event 'input'). --}}
+                                <input type="text" inputmode="numeric" pattern="[0-9]*"
+                                       name="items[{{ $loop->index }}][penalty_amount]"
+                                       :value="returnPenaltyAmounts[{{ $loop->index }}]"
+                                       @input="$el.value = $el.value.replace(/[^0-9]/g, ''); returnPenaltyAmounts[{{ $loop->index }}] = $el.value === '' ? null : Number($el.value)"
+                                       class="form-input text-xs w-full" placeholder="Jumlah kerugian (contoh: 50000)">
+                            </div>
+
+                            <div class="mt-2" x-show="returnPenalties[{{ $loop->index }}] === 'claim_guarantee'" x-cloak>
+                                @if($hasHeld)
+                                    <input type="hidden" name="items[{{ $loop->index }}][guarantee_id]" value="{{ $rental->guarantees->where('status', 'held')->first()->id }}">
+                                    <div class="p-3 rounded-xl bg-yellow-50 border border-yellow-200 text-sm" style="color: #b45309;">
+                                        Jaminan otomatis diklaim: <strong>{{ $rental->guarantees->where('status', 'held')->first()->type_label }}</strong>
+                                        @if($rental->guarantees->where('status', 'held')->first()->id_name) milik {{ $rental->guarantees->where('status', 'held')->first()->id_name }}@endif
+                                        @if($rental->guarantees->where('status', 'held')->first()->deposit_amount > 0) - Rp {{ number_format($rental->guarantees->where('status', 'held')->first()->deposit_amount, 0, ',', '.') }}@endif
+                                    </div>
+                                @else
+                                    <div class="p-3 rounded-xl bg-gray-100 border border-gray-200 text-sm" style="color: var(--text-soft);">
+                                        Tidak ada jaminan tersimpan untuk diklaim.
+                                    </div>
+                                @endif
+                            </div>
+
+                            <div class="mt-2">
+                                <p class="text-sm" style="color: var(--text-soft)">Preview denda: <span x-text="(returnPenalties[{{ $loop->index }}] === 'charge_double') ? formatRupiah(returnPenaltyAmounts[{{ $loop->index }}] ?? ({{ (float)$item->subtotal }} * 2)) : (returnPenalties[{{ $loop->index }}] === 'claim_guarantee' ? 'Menggunakan jaminan' : '-')"></span></p>
+                            </div>
+                        </div>
                     </div>
                     @endif
                     @endforeach
@@ -1215,7 +1493,6 @@ function rentalDetail() {
     return {
         showPaymentModal: false,
         showReturnModal: false,
-        showDiscountModal: false,
         showCancelModal: false,
         showWaPreviewModal: false,
         paymentLoading: false,
@@ -1227,8 +1504,8 @@ function rentalDetail() {
         paymentMethod: 'cash',
         paymentChannel: '',      // nama bank (transfer) ATAU bank/e-wallet (qris)
         paymentAccountNumber: '',
-        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga',],
-        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana' ],
+        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga'],
+        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana'],
         otherOptions: ['Lain-lain'], 
         resetPaymentMethod() {
             this.paymentChannel = '';
@@ -1272,6 +1549,35 @@ function rentalDetail() {
             this.paymentLoading = false;
             document.body.style.overflow = '';
         },
+
+        // ── FITUR BARU: modal Tentukan Denda & Bayar Denda (dipindah dari
+        // halaman scan supaya bisa langsung diakses dari halaman detail juga) ──
+        showLateFeeSetModal: false,
+        lateFeeSetLoading: false,
+        openLateFeeSet() {
+            this.showLateFeeSetModal = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeLateFeeSet() {
+            this.showLateFeeSetModal = false;
+            this.lateFeeSetLoading = false;
+            document.body.style.overflow = '';
+        },
+
+        showLateFeePaymentModal: false,
+        lateFeePaymentLoading: false,
+        lateFeeMethod: 'cash',
+        lateFeeChannel: '',
+        lateFeeAccountNumber: '',
+        openLateFeePayment() {
+            this.showLateFeePaymentModal = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeLateFeePayment() {
+            this.showLateFeePaymentModal = false;
+            this.lateFeePaymentLoading = false;
+            document.body.style.overflow = '';
+        },
         openReturn() {
             this.showReturnModal = true;
             document.body.style.overflow = 'hidden';
@@ -1281,14 +1587,67 @@ function rentalDetail() {
             this.returnLoading = false;
             document.body.style.overflow = '';
         },
-        openDiscount() {
-            this.showDiscountModal = true;
-            document.body.style.overflow = 'hidden';
+        // track per-item selected condition to reveal penalty options
+        returnConditions: {},
+        // track per-item selected penalty resolution to show amount/guarantee fields
+        returnPenalties: {},
+        // track per-item penalty amount for live preview
+        returnPenaltyAmounts: {},
+        // format number to Indonesian Rupiah-like string
+        formatRupiah(v) {
+            const n = Number(v) || 0;
+            return 'Rp ' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
         },
-        closeDiscount() {
-            this.showDiscountModal = false;
-            this.discountLoading = false;
-            document.body.style.overflow = '';
+        setReturnCondition(index, value) {
+            this.returnConditions[index] = value;
+        },
+        handleReturnSubmit(e) {
+            // Validate that any item with claim_guarantee has a selected guarantee.
+            const form = e.target;
+            const penaltyInputs = form.querySelectorAll('input[name$="[penalty_resolution]"]');
+
+            for (const inp of penaltyInputs) {
+                if (!inp.checked) continue;
+                if (inp.value !== 'claim_guarantee') continue;
+
+                // Determine the items index from the name attribute: items[<i>][penalty_resolution]
+                const m = inp.name.match(/^items\[(\d+)\]\[penalty_resolution\]$/);
+                if (!m) continue;
+                const idx = m[1];
+                const select = form.querySelector('select[name="items[' + idx + '][guarantee_id]"]');
+
+                // If select missing or has no value, ask the user what to do.
+                const guaranteeInput = form.querySelector('input[name="items[' + idx + '][guarantee_id]"], select[name="items[' + idx + '][guarantee_id]"]');
+                if (!guaranteeInput || !guaranteeInput.value) {
+                    const useMoney = confirm('Anda memilih "Gunakan jaminan" untuk item ini tetapi belum ada jaminan yang dapat diklaim.\n\nPilih OK untuk mengenakan denda uang (sistem denda), atau Cancel untuk batalkan pilihan jaminan.');
+                    if (useMoney) {
+                        const chargeRadio = form.querySelector('input[name="items[' + idx + '][penalty_resolution]"][value="charge_double"]');
+                        if (chargeRadio) {
+                            chargeRadio.checked = true;
+                            chargeRadio.dispatchEvent(new Event('change'));
+                        }
+                        const amtInput = form.querySelector('input[name="items[' + idx + '][penalty_amount]"]');
+                        if (amtInput && (!amtInput.value || Number(amtInput.value) === 0)) {
+                            const container = inp.closest('[data-subtotal]');
+                            const sub = container ? Number(container.getAttribute('data-subtotal')) : 0;
+                            amtInput.value = Math.max(0, Math.round(sub * 2));
+                            amtInput.dispatchEvent(new Event('input'));
+                        }
+                        continue;
+                    } else {
+                        if (guaranteeInput) {
+                            guaranteeInput.focus();
+                        } else {
+                            alert('Tidak ada jaminan yang dapat diklaim untuk item ini. Silakan pilih opsi denda uang.');
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // All validations passed — proceed with submit
+            this.returnLoading = true;
+            form.submit();
         },
         openCancel() {
             this.showCancelModal = true;

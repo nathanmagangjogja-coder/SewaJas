@@ -56,12 +56,56 @@
     .g-label { font-size: 9px; color: #6B6B6B; }
     .g-value { font-size: 10px; font-weight: bold; color: #2B2B2B; margin-top: 2px; }
 
-    .footer-table { width: 100%; border-collapse: collapse; border-top: 1px solid #E5DDD2; padding-top: 16px; margin-top: 16px; }
-    .footer-table td { vertical-align: bottom; padding-top: 16px; }
+    .footer-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .footer-table td { vertical-align: top; }
     .notes-title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #6B6B6B; margin-bottom: 4px; }
     .notes-text { font-size: 9px; color: #6B6B6B; line-height: 1.6; }
-    .signature-label { font-size: 9px; color: #6B6B6B; text-align: center; }
-    .qr-label { font-size: 8px; color: #6B6B6B; margin-top: 4px; text-align: center; }
+
+    /* FITUR BARU: "Riwayat Pelayanan" — menggantikan blok tanda tangan lama.
+       Sesuai permintaan: tanpa garis/form ttd, cukup nama staf + waktu utk
+       tiap tahap layanan (dibuat & dikembalikan), jadi jelas siapa
+       menerima vs siapa mengembalikan walau orangnya beda. */
+    .service-history { background: #F8F5F0; border: 1px solid #E5DDD2; border-radius: 8px; padding: 12px; }
+    .service-history-title { font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: #D6B98C; margin-bottom: 8px; }
+    .service-step { padding-left: 14px; border-left: 2px solid #E5DDD2; padding-bottom: 10px; position: relative; }
+    .service-step:last-child { padding-bottom: 0; }
+    .service-step-dot { position: absolute; left: -5px; top: 2px; width: 8px; height: 8px; border-radius: 50%; background: #D6B98C; }
+    .service-step-role { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: #6B6B6B; }
+    .service-step-name { font-size: 11px; font-weight: bold; color: #2B2B2B; margin-top: 1px; }
+    .service-step-time { font-size: 8px; color: #6B6B6B; margin-top: 1px; }
+
+    /* FITUR BARU (gaya "e-tiket" KAI Access): barcode/QR sekarang jadi
+       elemen tersendiri yang besar & benar-benar di tengah halaman, dengan
+       garis putus-putus di atasnya seperti sobekan tiket — bukan lagi
+       ikon kecil 90x90 yang terjepit di pojok tabel footer. */
+    .ticket-stub {
+        margin-top: 22px;
+        margin-bottom: 22px;
+        padding-top: 20px;
+        padding-bottom: 20px;
+        border-top: 2px dashed #D6B98C;
+        border-bottom: 2px dashed #D6B98C;
+    }
+    .ticket-stub-label {
+        font-size: 8px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: #D6B98C;
+        margin-bottom: 10px;
+        text-align: center;
+    }
+    .ticket-stub img { width: 150px; height: 150px; }
+    .ticket-stub-code {
+        font-size: 12px;
+        font-weight: bold;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 2px;
+        color: #2B2520;
+        margin-top: 10px;
+        text-align: center;
+    }
+    .ticket-stub-hint { font-size: 8px; color: #6B6B6B; margin-top: 3px; text-align: center; }
 
     .watermark {
         position: absolute;
@@ -153,12 +197,12 @@
             </td>
             <td class="info-box">
                 <div class="info-box-title">Informasi Transaksi</div>
-                <div class="info-label">Diproses Oleh</div>
-                <div class="info-value">{{ $rental->createdBy->name }}</div>
                 <div class="info-label">Cabang</div>
                 <div class="info-value">{{ $rental->branch->name }}</div>
                 <div class="info-label">Tanggal Dibuat</div>
                 <div class="info-value">{{ $rental->created_at->format('d M Y H:i') }}</div>
+                <div class="info-label">Status</div>
+                <div class="info-value">{{ $rental->status_label }}</div>
             </td>
         </tr>
     </table>
@@ -256,10 +300,37 @@
     </div>
     @endif
 
-    <!-- Footer -->
+    {{-- FITUR BARU (urutan diubah sesuai permintaan): ticket-stub QR
+         sekarang berada DI TENGAH dokumen — persis setelah tabel
+         barang/total, SEBELUM syarat & ketentuan + riwayat pelayanan
+         (yang sekarang jadi footer paling bawah). Gaya e-tiket KAI Access:
+         barcode besar, benar-benar di tengah halaman, dengan garis
+         putus-putus di atas (seperti sobekan tiket), plus nomor invoice
+         diulang di bawahnya (mirip kode booking di bawah barcode boarding
+         pass).
+         FIX centering: dompdf kadang tidak konsisten menghormati
+         text-align:center pada tag gambar langsung di dalam sebuah div —
+         dipakai <table> 1 kolom dengan align="center" bawaan HTML, cara
+         paling reliable untuk benar-benar center di dompdf. --}}
+    @if($rental->qr_code)
+    <div class="ticket-stub">
+        <div class="ticket-stub-label">Tiket Verifikasi Transaksi</div>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td align="center">
+                    <img src="{{ storage_path('app/public/' . $rental->qr_code) }}" alt="QR Code">
+                </td>
+            </tr>
+        </table>
+        <div class="ticket-stub-code">{{ $rental->invoice_number }}</div>
+        <div class="ticket-stub-hint">Scan kode ini untuk verifikasi atau proses pengembalian barang</div>
+    </div>
+    @endif
+
+    <!-- Footer: syarat & ketentuan + riwayat pelayanan (paling bawah) -->
     <table class="footer-table">
         <tr>
-            <td style="vertical-align: bottom;">
+            <td style="width: 52%;">
                 <div class="notes-title">Syarat &amp; Ketentuan</div>
                 <div class="notes-text">
                     1. Barang wajib dikembalikan sesuai tanggal jatuh tempo.<br>
@@ -268,13 +339,32 @@
                     4. Jaminan dikembalikan setelah barang kembali dalam kondisi baik.
                 </div>
             </td>
-            <td style="width: 160px; text-align: center; vertical-align: bottom;">
-                @if($rental->qr_code)
-                <img src="{{ storage_path('app/public/' . $rental->qr_code) }}" width="90" height="90">
-                <div class="qr-label">Scan untuk verifikasi</div>
-                @endif
-                <div class="signature-label" style="margin-top: 8px;">
-                    Dilayani oleh: <strong>{{ $rental->createdBy->name }}</strong>
+            <td style="width: 4%;"></td>
+            <td style="width: 44%;">
+                {{-- "Riwayat Pelayanan" — tanpa form/garis tanda tangan sama
+                     sekali (sesuai permintaan), cukup nama + waktu untuk
+                     tiap tahap. Kalau barang belum dikembalikan, cuma tahap
+                     "Dibuat" yang tampil. Kalau staf pembuat & staf
+                     pengembali sama, tetap ditampilkan sebagai 2 baris
+                     terpisah supaya riwayatnya konsisten & jelas urutannya. --}}
+                <div class="service-history">
+                    <div class="service-history-title">Riwayat Pelayanan</div>
+
+                    <div class="service-step">
+                        <div class="service-step-dot"></div>
+                        <div class="service-step-role">Dibuat oleh</div>
+                        <div class="service-step-name">{{ $rental->createdBy->name }}</div>
+                        <div class="service-step-time">{{ $rental->created_at->format('d M Y, H:i') }} WIB</div>
+                    </div>
+
+                    @if($rental->returnedBy)
+                    <div class="service-step" style="border-left-color: #D6B98C;">
+                        <div class="service-step-dot" style="background: #15803D;"></div>
+                        <div class="service-step-role">Dikembalikan oleh</div>
+                        <div class="service-step-name">{{ $rental->returnedBy->name }}</div>
+                        <div class="service-step-time">{{ $rental->returned_at?->format('d M Y, H:i') }} WIB</div>
+                    </div>
+                    @endif
                 </div>
             </td>
         </tr>

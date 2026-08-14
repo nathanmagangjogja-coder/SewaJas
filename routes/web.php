@@ -102,6 +102,9 @@ Route::middleware(['auth', \App\Http\Middleware\EnsureBranchScope::class])->grou
         Route::get('/{rental}',      [RentalController::class, 'show'])->name('show');
         Route::get('/{rental}/qr-download', [RentalController::class, 'downloadQr'])->name('qr.download');
         Route::post('/{rental}/payment',    [RentalController::class, 'processPayment'])->name('payment');
+        // FITUR BARU: tentukan nominal denda keterlambatan SEBELUM barang
+        // bisa diproses pengembalian fisiknya (lihat RentalController::setLateFee).
+        Route::post('/{rental}/late-fee',   [RentalController::class, 'setLateFee'])->name('late-fee.set');
         Route::post('/{rental}/return',     [RentalController::class, 'processReturn'])->name('return');
         Route::get('/{rental}/invoice',     [RentalController::class, 'invoice'])->name('invoice');
         Route::get('/{rental}/thermal',     [RentalController::class, 'thermalPrint'])->name('thermal');
@@ -161,8 +164,16 @@ Route::middleware(['auth', \App\Http\Middleware\EnsureBranchScope::class])->grou
         Route::get('/check-duplicate', [CustomerController::class, 'checkDuplicate'])->name('check-duplicate');
 
         // ── STATIC routes WAJIB sebelum wildcard /{customer} ─────────────────
-        Route::middleware('role:super_admin,admin_toko')->group(function () {
+        // FIX: export sebelumnya 1 grup middleware dengan archive
+        // (super_admin,admin_toko saja) -> sales tidak bisa akses export
+        // sama sekali (403). Sekarang dipisah: export boleh diakses sales
+        // juga (butuh untuk kerja sehari-hari, mis. rekap customer buat
+        // follow-up), sedangkan archive (lihat data yang di-soft-delete)
+        // tetap dibatasi admin saja.
+        Route::middleware('role:super_admin,admin_toko,sales')->group(function () {
             Route::get('/export',  [CustomerController::class, 'export'])->name('export');
+        });
+        Route::middleware('role:super_admin,admin_toko')->group(function () {
             Route::get('/archive', [CustomerController::class, 'archive'])->name('archive');
         });
 

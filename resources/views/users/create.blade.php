@@ -187,7 +187,7 @@
                         <label class="block text-sm font-medium mb-1.5" style="color:var(--text-dark)">
                             Cabang <span class="text-red-500">*</span>
                         </label>
-                        <select name="branch_id" class="form-input @error('branch_id') border-red-400 @enderror">
+                        <select name="branch_id" id="branch-select" required class="form-input @error('branch_id') border-red-400 @enderror">
                             <option value="">Pilih Cabang</option>
                             @foreach($branches as $b)
                             <option value="{{ $b->id }}" {{ old('branch_id') == $b->id ? 'selected' : '' }}>
@@ -267,13 +267,19 @@
         const wrap = document.getElementById('branch-wrap');
         const info = document.getElementById('role-info');
         const text = document.getElementById('role-info-text');
+        const branchSelect = document.getElementById('branch-select');
 
         if (role === 'super_admin') {
             wrap.style.opacity = '0.4';
             wrap.style.pointerEvents = 'none';
+            // FIX: super_admin tidak butuh cabang -> lepas required & kosongkan
+            branchSelect.required = false;
+            branchSelect.value = '';
         } else {
             wrap.style.opacity = '1';
             wrap.style.pointerEvents = 'auto';
+            // FIX: admin_toko & sales WAJIB pilih cabang
+            branchSelect.required = true;
         }
 
         if (roleDesc[role]) {

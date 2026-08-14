@@ -15,16 +15,19 @@ return new class extends Migration
             $table->timestamp('selesai_laundry_at')->nullable()->after('mulai_laundry_at');
         });
 
-        DB::statement("ALTER TABLE rentals MODIFY COLUMN rental_status ENUM(
-            'waiting',
-            'active',
-            'overdue',
-            'returned',
-            'cancelled',
-            'menunggu_laundry',
-            'dalam_laundry',
-            'siap_disewakan'
-        ) NOT NULL DEFAULT 'waiting'");
+        // Only run raw ALTER statements on MySQL. SQLite doesn't support MODIFY/ENUM.
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE rentals MODIFY COLUMN rental_status ENUM(
+                'waiting',
+                'active',
+                'overdue',
+                'returned',
+                'cancelled',
+                'menunggu_laundry',
+                'dalam_laundry',
+                'siap_disewakan'
+            ) NOT NULL DEFAULT 'waiting'");
+        }
     }
 
     public function down(): void
@@ -33,12 +36,14 @@ return new class extends Migration
             $table->dropColumn(['dikembalikan_at', 'mulai_laundry_at', 'selesai_laundry_at']);
         });
 
-        DB::statement("ALTER TABLE rentals MODIFY COLUMN rental_status ENUM(
-            'waiting',
-            'active',
-            'overdue',
-            'returned',
-            'cancelled'
-        ) NOT NULL DEFAULT 'waiting'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE rentals MODIFY COLUMN rental_status ENUM(
+                'waiting',
+                'active',
+                'overdue',
+                'returned',
+                'cancelled'
+            ) NOT NULL DEFAULT 'waiting'");
+        }
     }
 };

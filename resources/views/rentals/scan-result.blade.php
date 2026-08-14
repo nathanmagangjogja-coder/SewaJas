@@ -6,7 +6,13 @@
 
 @section('content')
 <div class="max-w-3xl mx-auto space-y-5" id="scan-result-content"
-     x-data="latePaymentModal({{ session('open_late_fee_payment') ? 'true' : 'false' }})">
+     x-data="latePaymentModal(
+        {{ session('open_late_fee_payment') ? 'true' : 'false' }},
+        {{-- FIX BUG (penyebab 500 error): payments.type di database adalah
+             ENUM ['rental','deposit','late_fee','damage_fee','refund'] —
+             HARUS 'damage_fee', bukan 'damage'. --}}
+        '{{ $rental->needs_return_payment ? 'damage_fee' : 'late_fee' }}'
+     )">
 
     {{-- ─── BACK & ACTIONS ─────────────────────────────────────────── --}}
     <div class="flex items-center justify-between">
@@ -21,7 +27,7 @@
     </div>
 
         @php
-        $stepActive = in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status === 'paid';
+        $stepActive = $rental->can_be_returned;
         $stepDone   = $rental->rental_status === 'returned';
     @endphp
     <div class="flex items-center justify-center gap-1 sm:gap-2 px-2">
@@ -125,11 +131,22 @@
         </div>
     </div>
 
-    {{-- ─── DENDA BELUM DIBAYAR (pembayaran ke-2, terpisah dari sewa) ── --}}
-    @if(in_array($rental->rental_status, ['menunggu_laundry', 'dalam_laundry', 'siap_disewakan', 'returned'])
-        && $rental->payment_status !== 'paid'
-        && $rental->late_fee > 0
-        && $rental->remaining_amount > 0)
+    {{-- ─── DENDA BELUM DIBAYAR / KEKURANGAN TAGIHAN RETUR ── FITUR BARU:
+         2 kasus berbeda ditangani di sini —
+         1) needs_late_fee_payment : denda TELAT belum lunas (sebelum barang dinilai kondisinya)
+         2) needs_return_payment   : kondisi barang SUDAH dinilai (mis. ada yang
+            rusak/hilang, dibebankan tunai) tapi belum lunas -> barang belum
+            dianggap dikembalikan.
+         Kondisi lama (setelah retur selesai, misal baru bayar sebagian) tetap dipertahankan. ── --}}
+    @php
+        $showLateFeeBanner = $rental->needs_late_fee_payment
+            || (in_array($rental->rental_status, ['menunggu_laundry', 'dalam_laundry', 'siap_disewakan', 'returned'])
+                && $rental->payment_status !== 'paid'
+                && $rental->late_fee > 0
+                && $rental->remaining_amount > 0);
+        $showReturnPaymentBanner = $rental->needs_return_payment;
+    @endphp
+    @if($showLateFeeBanner)
     <div class="p-4 rounded-xl flex items-center justify-between gap-3 flex-wrap"
          style="background: #FFF1F0; border: 1px solid #FECACA">
         <div class="flex items-center gap-3">
@@ -138,14 +155,39 @@
                 <p class="font-semibold text-sm" style="color: #C0392B">Denda Keterlambatan Belum Dibayar</p>
                 <p class="text-xs" style="color: #E74C3C">
                     Sisa tagihan denda: Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
+                    @if($rental->rental_status === 'overdue')
+                        — barang <strong>belum bisa dikembalikan</strong> sebelum ini lunas.
+                    @endif
                 </p>
             </div>
         </div>
-        <button @click="openLateFeePayment()" type="button"
+        <button @click="openLateFeePayment('late_fee')" type="button"
                 class="btn-primary text-sm"
                 style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
             <i data-lucide="credit-card" class="w-4 h-4"></i>
             Bayar Denda
+        </button>
+    </div>
+    @endif
+
+    @if($showReturnPaymentBanner)
+    <div class="p-4 rounded-xl flex items-center justify-between gap-3 flex-wrap"
+         style="background: #FFF1F0; border: 1px solid #FECACA">
+        <div class="flex items-center gap-3">
+            <i data-lucide="lock" class="w-5 h-5 flex-shrink-0" style="color: #C0392B"></i>
+            <div>
+                <p class="font-semibold text-sm" style="color: #C0392B">Kondisi Barang Sudah Dicatat, Belum Lunas</p>
+                <p class="text-xs" style="color: #E74C3C">
+                    Sisa tagihan: Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
+                    — barang <strong>belum dianggap dikembalikan</strong> sebelum ini lunas.
+                </p>
+            </div>
+        </div>
+        <button @click="openLateFeePayment('damage_fee')" type="button"
+                class="btn-primary text-sm"
+                style="background: linear-gradient(135deg, #C0392B, #E74C3C)">
+            <i data-lucide="banknote" class="w-4 h-4"></i>
+            Bayar Kekurangan
         </button>
     </div>
     @endif
@@ -240,87 +282,97 @@
     </div>
     @endif
 
-    {{-- ─── INFO KETERLAMBATAN (hari saja, denda diinput manual di bawah) ─── --}}
-    @if(in_array($rental->rental_status, ['active', 'overdue']) && $feeData['late_days'] > 0)
-    <div class="card p-6" style="border-top: 3px solid #C0392B; background: #FFFBFB">
-        <h3 class="font-playfair font-semibold text-base mb-2 flex items-center gap-2" style="color: #C0392B">
-            <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-            Terlambat Dikembalikan
-        </h3>
-        <div class="flex justify-between text-sm">
-            <span style="color: var(--text-soft)">Jumlah hari terlambat</span>
-            <span class="font-semibold" style="color: #C0392B">{{ $feeData['late_days'] }} hari</span>
+    {{-- ─── FITUR BARU: DENDA HARUS LUNAS DULU SEBELUM BARANG DIKEMBALIKAN ───
+         Alur overdue sekarang 2 langkah:
+           1) Staf menentukan nominal denda (endpoint terpisah, bisa Rp 0)
+           2) Denda WAJIB lunas dibayar (banner "Bayar Denda" di atas)
+         Baru setelah itu form pengembalian fisik di bawah ini terbuka. ── --}}
+    @if($rental->rental_status === 'overdue' && $feeData['late_days'] > 0)
+
+        @if($rental->needs_late_fee_confirmation)
+        {{-- Langkah 1: staf belum menentukan nominal denda sama sekali --}}
+        <div class="card p-6" style="border-top: 3px solid #C0392B; background: #FFFBFB">
+            <h3 class="font-playfair font-semibold text-base mb-1 flex items-center gap-2" style="color: #C0392B">
+                <i data-lucide="banknote" class="w-4 h-4"></i>
+                Tentukan Denda Keterlambatan
+            </h3>
+            <p class="text-xs mb-4" style="color: var(--text-soft)">
+                Rental ini terlambat <strong>{{ $feeData['late_days'] }} hari</strong>. Tentukan nominal denda
+                sesuai kebijakan toko — barang <strong>baru bisa diproses pengembalian</strong> setelah
+                denda ini ditentukan &amp; dibayar lunas. Isi <strong>0</strong> kalau memang tidak ada denda.
+            </p>
+
+            <form method="POST" action="{{ route('rentals.late-fee.set', $rental) }}"
+                  x-data="{ isLoading: false }"
+                  @submit="isLoading = true">
+                @csrf
+                <div class="grid sm:grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">Nominal Denda</label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style="color: var(--text-soft)">Rp</span>
+                            {{-- FIX: numerals only, sama seperti input Jumlah Bayar --}}
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" name="late_fee" required
+                                   @input="$el.value = $el.value.replace(/[^0-9]/g, '')"
+                                   class="form-input w-full pl-9" placeholder="0">
+                        </div>
+                        @error('late_fee')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">
+                            Catatan / Alasan <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
+                        </label>
+                        <input type="text" name="late_fee_note" maxlength="255"
+                               class="form-input w-full text-sm"
+                               placeholder="Cth: barang cacat produksi, keringanan diberikan">
+                    </div>
+                </div>
+                <button type="submit" :disabled="isLoading" :class="isLoading ? 'opacity-75' : ''"
+                        class="btn-primary w-full justify-center py-3">
+                    <template x-if="isLoading"><span class="btn-spinner"></span></template>
+                    <span x-text="isLoading ? 'Menyimpan...' : 'Simpan Nominal Denda'"></span>
+                </button>
+            </form>
         </div>
-        <p class="text-xs mt-2" style="color: var(--text-soft)">
-            Nominal denda ditentukan manual oleh staf di form di bawah.
-        </p>
-    </div>
+        @elseif($rental->needs_late_fee_payment)
+        {{-- Langkah 2: denda sudah ditentukan, tinggal menunggu pembayaran
+             (tombol "Bayar Denda" ada di banner merah di atas). --}}
+        <div class="card p-6 text-center" style="border-top: 3px solid #C0392B; background: #FFFBFB">
+            <i data-lucide="lock" class="w-6 h-6 mx-auto mb-2" style="color: #C0392B"></i>
+            <p class="font-semibold text-sm" style="color: #C0392B">
+                Denda Rp {{ number_format($rental->late_fee, 0, ',', '.') }} Belum Lunas
+            </p>
+            <p class="text-xs mt-1" style="color: var(--text-soft)">
+                Formulir pengembalian barang akan terbuka otomatis setelah denda ini dibayar lunas.
+                Gunakan tombol <strong>"Bayar Denda"</strong> di atas.
+            </p>
+            @if($rental->late_fee_note)
+            <p class="text-xs mt-2 italic" style="color: var(--text-soft)">Catatan: {{ $rental->late_fee_note }}</p>
+            @endif
+        </div>
+        @else
+        {{-- Denda sudah ditentukan & lunas — info ringkas saja sebagai konteks --}}
+        <div class="card p-4 flex items-center justify-between" style="border-top: 3px solid #16A34A; background: #F0FDF4">
+            <div class="flex items-center gap-2">
+                <i data-lucide="check-circle" class="w-4 h-4" style="color: #16A34A"></i>
+                <span class="text-sm font-semibold" style="color: #15803D">
+                    {{ $rental->late_fee > 0 ? 'Denda Rp ' . number_format($rental->late_fee, 0, ',', '.') . ' sudah lunas' : 'Tidak ada denda keterlambatan' }}
+                </span>
+            </div>
+            <span class="text-xs" style="color: var(--text-soft)">{{ $feeData['late_days'] }} hari terlambat</span>
+        </div>
+        @endif
     @endif
 
     {{-- ─── FORM PENGEMBALIAN ───────────────────────────────────────── --}}
-    @if(in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status === 'paid')
+    @if($rental->can_be_returned)
     @php
         $returnItems = $rental->items->where('is_returned', false)->values();
         $guaranteeAvailable = $rental->guarantees->where('status', 'held')->count() > 0;
     @endphp
-    <div x-data="returnForm({{ $returnItems->pluck('id') }}, {{ (float) $rental->subtotal }}, {{ (float) ($feeData['late_fee'] ?? 0) }}, {{ $returnItems->pluck('subtotal', 'id') }})" class="space-y-5">
+    <div x-data="returnForm({{ $returnItems->pluck('id') }}, {{ (float) $rental->subtotal }}, {{ (float) $rental->late_fee }}, {{ $returnItems->pluck('subtotal', 'id') }})" class="space-y-5">
 
-                @if(in_array($rental->rental_status, ['active', 'overdue']) && $feeData['late_days'] > 0)
-        <div class="card p-6" style="border-top: 3px solid #C0392B; background: #FFFBFB">
-            <h3 class="font-playfair font-semibold text-base mb-1 flex items-center gap-2" style="color: var(--text-dark)">
-                <i data-lucide="banknote" class="w-4 h-4" style="color: #C0392B"></i>
-                Denda Keterlambatan (Manual)
-            </h3>
-            <p class="text-xs mb-3" style="color: var(--text-soft)">
-                Rental ini terlambat <strong>{{ $feeData['late_days'] }} hari</strong>. Denda tidak lagi dihitung otomatis — tentukan nominal sesuai kebijakan toko, kondisi barang, dan riwayat customer. Kosongkan / isi 0 kalau tidak ada denda.
-            </p>
 
-            {{-- Ringkasan kondisi barang - konteks cepat buat staf sebelum menentukan nominal --}}
-            <div class="flex items-center gap-3 mb-4 p-2.5 rounded-lg text-xs" style="background: var(--bg-main)">
-                <span style="color: var(--text-soft)">Kondisi barang:</span>
-                <span class="flex items-center gap-1" style="color: #16A34A">
-                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
-                    <span x-text="counts.good"></span> baik
-                </span>
-                <span class="flex items-center gap-1" style="color: #D97706" x-show="counts.damaged > 0">
-                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
-                    <span x-text="counts.damaged"></span> rusak
-                </span>
-                <span class="flex items-center gap-1" style="color: #DC2626" x-show="counts.lost > 0">
-                    <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
-                    <span x-text="counts.lost"></span> hilang
-                </span>
-            </div>
-
-            <div class="grid sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">Nominal Denda</label>
-                    <div class="relative">
-                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style="color: var(--text-soft)">Rp</span>
-                        <input type="number" name="late_fee" x-model.number="lateFee" min="0" step="1000"
-                               class="form-input w-full pl-9" placeholder="0">
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium mb-1.5" style="color: var(--text-dark)">
-                        Catatan / Alasan
-                        <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
-                    </label>
-                    <input type="text" name="late_fee_note" x-model="lateFeeNote"
-                           class="form-input w-full text-sm"
-                           placeholder="Cth: barang cacat produksi, keringanan diberikan">
-                </div>
-            </div>
-
-            {{-- Preview dampak nominal denda secara langsung, biar staf/admin bisa cek cepat sebelum submit --}}
-            <div class="flex items-center justify-between mt-3 pt-3 border-t text-xs" style="border-color: #FECACA" x-show="lateFee > 0">
-                <span style="color: var(--text-soft)">Denda ini akan menambah total sebesar</span>
-                <span class="font-bold" style="color: #C0392B" x-text="fmt(lateFee)"></span>
-            </div>
-        </div>
-        @endif
-
-        {{-- ─── DISKON MANUAL (BARU) ────────────────────────────────────── --}}
         <div class="card p-6" style="border-top: 3px solid #0EA5E9">
             <h3 class="font-playfair font-semibold text-base mb-4 flex items-center gap-2" style="color: var(--text-dark)">
                 <i data-lucide="badge-percent" class="w-4 h-4" style="color: #0EA5E9"></i>
@@ -545,18 +597,20 @@
             </div>
             @endforeach
 
-            {{-- Ringkasan denda — lebih menonjol --}}
-            @if($feeData['late_days'] > 0)
-            <div class="p-4 rounded-xl mb-5 flex items-center justify-between" style="background: linear-gradient(135deg,#FFF8E7,#FFF1D6); border: 1px solid #F6E4B0">
+            {{-- Ringkasan denda — denda ini sudah ditentukan & LUNAS dibayar
+                 sebelum form ini bisa diakses (lihat blok "Tentukan/Bayar
+                 Denda" di atas), jadi di sini murni informasi. --}}
+            @if($rental->late_fee > 0)
+            <div class="p-4 rounded-xl mb-5 flex items-center justify-between" style="background: linear-gradient(135deg,#F0FDF4,#DCFCE7); border: 1px solid #BBF7D0">
                 <div class="flex items-center gap-2">
-                    <i data-lucide="clock-alert" class="w-5 h-5" style="color:#B7791F"></i>
+                    <i data-lucide="check-circle" class="w-5 h-5" style="color:#15803D"></i>
                     <div>
-                        <p class="text-xs font-semibold" style="color:#B7791F">Denda Keterlambatan</p>
-                        <p class="text-[11px]" style="color:#B7791F">{{ $feeData['late_days'] }} hari × Rp 10.000</p>
+                        <p class="text-xs font-semibold" style="color:#15803D">Denda Keterlambatan (Lunas)</p>
+                        <p class="text-[11px]" style="color:#15803D">{{ $rental->overdue_days }} hari terlambat</p>
                     </div>
                 </div>
-                <span class="text-lg font-bold font-playfair" style="color:#B7791F">
-                    Rp {{ number_format($feeData['late_fee'], 0, ',', '.') }}
+                <span class="text-lg font-bold font-playfair" style="color:#15803D">
+                    Rp {{ number_format($rental->late_fee, 0, ',', '.') }}
                 </span>
             </div>
             @endif
@@ -582,8 +636,10 @@
     </div>
     </div>
 
-    {{-- Belum lunas --}}
-    @elseif(in_array($rental->rental_status, ['active', 'overdue']) && $rental->payment_status !== 'paid')
+    {{-- Belum lunas (pembayaran sewa awal, KASUS NON-OVERDUE — untuk rental
+         overdue, status "belum lunas" selalu berarti denda belum lunas dan
+         sudah ditangani oleh blok "Tentukan/Bayar Denda" di atas). --}}
+    @elseif($rental->rental_status === 'active' && $rental->payment_status !== 'paid')
     <div class="p-4 rounded-xl text-center" style="background: #FFF8E7; border: 1px solid #F6E4B0">
         <p class="font-semibold text-sm" style="color: #B7791F">
             ⚠️ Belum Lunas — Selesaikan Pembayaran Dulu
@@ -682,7 +738,8 @@
                     <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: #FEE2E2">
                         <i data-lucide="alarm-clock" class="w-3.5 h-3.5" style="color: #C0392B"></i>
                     </div>
-                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)">Bayar Denda Keterlambatan</h3>
+                    <h3 class="font-playfair font-bold text-sm" style="color: var(--text-dark)"
+                        x-text="paymentContext === 'damage_fee' ? 'Bayar Kekurangan Tagihan' : 'Bayar Denda Keterlambatan'"></h3>
                 </div>
                 <button @click="closeLateFeePayment()"
                         class="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
@@ -695,20 +752,20 @@
 
                 <div class="rounded-xl p-3 relative overflow-hidden"
                      style="background: linear-gradient(135deg, #C0392B, #E74C3C);">
-                    <p class="text-[10px] font-medium" style="color: rgba(255,255,255,0.75)">Sisa Denda Keterlambatan</p>
+                    <p class="text-[10px] font-medium" style="color: rgba(255,255,255,0.75)"
+                       x-text="paymentContext === 'damage_fee' ? 'Sisa Kekurangan Tagihan' : 'Sisa Denda Keterlambatan'"></p>
                     <p class="text-xl font-bold font-playfair" style="color: white">
                         Rp {{ number_format($rental->remaining_amount, 0, ',', '.') }}
                     </p>
-                    <p class="text-[10px] mt-0.5" style="color: rgba(255,255,255,0.65)">
-                        Ini adalah pembayaran terpisah dari pembayaran sewa sebelumnya.
-                    </p>
+                    <p class="text-[10px] mt-0.5" style="color: rgba(255,255,255,0.65)"
+                       x-text="paymentContext === 'damage_fee' ? 'Barang belum dianggap dikembalikan sampai ini lunas.' : 'Ini adalah pembayaran terpisah dari pembayaran sewa sebelumnya.'"></p>
                 </div>
 
                 <form method="POST" action="{{ route('rentals.payment', $rental) }}" class="space-y-3"
                       enctype="multipart/form-data"
                       @submit="lateFeePaymentLoading = true">
                     @csrf
-                    <input type="hidden" name="type" value="late_fee">
+                    <input type="hidden" name="type" :value="paymentContext">
 
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
@@ -716,8 +773,9 @@
                         </label>
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold" style="color: var(--text-soft)">Rp</span>
-                            <input type="number" name="amount" required min="1"
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" name="amount" required
                                    value="{{ (int) $rental->remaining_amount }}"
+                                   @input="$el.value = $el.value.replace(/[^0-9]/g, '')"
                                    class="form-input w-full pl-9 font-bold text-sm"
                                    style="color: #C0392B; padding-top: 0.5rem; padding-bottom: 0.5rem;">
                         </div>
@@ -797,13 +855,13 @@
 
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color: var(--text-dark)">
-                            No. Referensi
+                            Catatan
                             <span class="font-normal" style="color: var(--text-soft)">(opsional)</span>
                         </label>
                         <input type="text" name="reference_number"
                                class="form-input w-full text-sm"
                                style="padding-top: 0.5rem; padding-bottom: 0.5rem;"
-                               placeholder="No. transfer, kode QRIS...">
+                               placeholder="Contoh: minta diantar via ojek, ambil jam 18:00...">
                     </div>
 
                     <div class="flex gap-2 pt-1">
@@ -836,16 +894,21 @@
 
 @push('scripts')
 <script>
-function latePaymentModal(autoOpen) {
+function latePaymentModal(autoOpen, defaultContext) {
     return {
         showLateFeePayment: autoOpen,
+        // FITUR BARU: modal ini sekarang dipakai untuk 2 konteks berbeda —
+        // 'late_fee' (denda keterlambatan) dan 'damage_fee' (kekurangan tagihan
+        // retur, mis. denda rusak/hilang yang dibebankan tunai).
+        paymentContext: defaultContext || 'late_fee',
         lateFeePaymentLoading: false,
         lateFeeMethod: 'cash',
         lateFeeChannel: '',
         lateFeeAccountNumber: '',
         bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga'],
         qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana'],
-        openLateFeePayment() {
+        openLateFeePayment(context) {
+            this.paymentContext = context || 'late_fee';
             this.showLateFeePayment = true;
         },
         closeLateFeePayment() {

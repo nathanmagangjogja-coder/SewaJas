@@ -24,11 +24,11 @@ class Rental extends Model
     }
 
     protected $fillable = [
-        'invoice_number', 'branch_id', 'customer_id', 'created_by',
+        'invoice_number', 'branch_id', 'customer_id', 'created_by', 'returned_by',
         'package_id',                          // ← BARU
         'rental_date', 'return_due_date', 'actual_return_date', 'returned_at',
         'duration_days',
-        'subtotal', 'discount', 'late_fee', 'late_fee_note', 'cancel_laundry_fee', 'total_amount', 'paid_amount',
+        'subtotal', 'discount', 'late_fee', 'late_fee_note', 'late_fee_confirmed_at', 'return_assessed_at', 'cancel_laundry_fee', 'total_amount', 'paid_amount',
         'discount_name', 'discount_description', 'discount_type', 'discount_value', // ← BARU: metadata diskon manual (proses retur)
         'overdue_days',
         'payment_status', 'rental_status',
@@ -42,6 +42,8 @@ class Rental extends Model
         'actual_return_date' => 'date',
         'returned_at'        => 'datetime',
         'cancelled_at'       => 'datetime',
+        'late_fee_confirmed_at' => 'datetime',
+        'return_assessed_at'    => 'datetime',
         'subtotal'           => 'decimal:2',
         'discount'           => 'decimal:2',
         'discount_value'     => 'decimal:2', // ← BARU
@@ -105,6 +107,18 @@ class Rental extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * FITUR BARU: admin/staf yang benar-benar MEMPROSES PENGEMBALIAN barang
+     * (menerima barang, cek kondisi, finalisasi) — bisa berbeda dari
+     * createdBy() (staf yang membuat transaksi sewa di awal). Diisi otomatis
+     * di RentalService::finalizeReturn(). Null selama barang belum
+     * dikembalikan.
+     */
+    public function returnedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'returned_by');
     }
 
     public function cancelledBy(): BelongsTo
@@ -192,6 +206,99 @@ class Rental extends Model
     public function getRemainingAmountAttribute(): float
     {
         return max(0, (float) $this->total_amount - (float) $this->paid_amount);
+    }
+
+    /**
+     * FITUR: Denda harus dibayar dulu sebelum barang bisa dikembalikan.
+     *
+     * true  = rental sedang overdue TAPI staf belum menentukan nominal denda
+     *         sama sekali → form pengembalian fisik harus disembunyikan,
+     *         staf diarahkan ke form "Tentukan Denda" dulu.
+     */
+    public function getNeedsLateFeeConfirmationAttribute(): bool
+    {
+        return $this->rental_status === self::STATUS_OVERDUE
+            && is_null($this->late_fee_confirmed_at);
+    }
+
+    /**
+     * true = denda sudah ditentukan staf, TAPI belum lunas dibayar →
+     *        form pengembalian fisik harus disembunyikan, staf diarahkan
+     *        untuk menyelesaikan pembayaran denda dulu.
+     */
+    public function getNeedsLateFeePaymentAttribute(): bool
+    {
+        return $this->rental_status === self::STATUS_OVERDUE
+            && !is_null($this->late_fee_confirmed_at)
+            // FIX: begitu assessment kondisi barang sudah dimulai
+            // (return_assessed_at terisi), kekurangan bayar yang tersisa
+            // adalah soal tagihan RETUR (denda rusak/hilang) — bukan lagi
+            // soal denda telat, walau kolom payment_status yang dipakai
+            // sama. Tanpa syarat ini, tombol "Bayar Denda" (telat) bisa
+            // salah muncul padahal yang perlu dibayar sebenarnya denda
+            // rusak/hilang (lihat needs_return_payment).
+            && is_null($this->return_assessed_at)
+            && $this->payment_status !== self::PAYMENT_PAID;
+    }
+
+    /**
+     * true = barang BOLEH diproses pengembalian fisiknya sekarang.
+     * Dipakai baik di Blade (tampilkan/sembunyikan form) maupun sebagai
+     * guard terakhir di backend (RentalController::processReturn) supaya
+     * aturan ini tidak bisa dilewati walau seseorang POST langsung ke API.
+     */
+    public function getCanBeReturnedAttribute(): bool
+    {
+        if (!in_array($this->rental_status, [self::STATUS_ACTIVE, self::STATUS_OVERDUE], true)) {
+            return false;
+        }
+
+        // FITUR BARU: kalau kondisi barang sudah pernah dinilai (assessment)
+        // tapi tagihannya belum lunas, form "catat kondisi barang" TIDAK
+        // ditampilkan lagi -> arahkan ke pembayaran kekurangan dulu
+        // (lihat needs_return_payment).
+        if (!is_null($this->return_assessed_at) && $this->payment_status !== self::PAYMENT_PAID) {
+            return false;
+        }
+
+        if ($this->rental_status === self::STATUS_OVERDUE) {
+            return !$this->needs_late_fee_confirmation
+                && !$this->needs_late_fee_payment;
+        }
+
+        // Tidak overdue: syarat lama tetap berlaku — lunas dulu baru bisa dikembalikan.
+        return $this->payment_status === self::PAYMENT_PAID;
+    }
+
+    /**
+     * FITUR BARU: "Barang tidak selesai dikembalikan sampai tagihan lunas".
+     *
+     * true = staf sudah mencatat kondisi barang (assessment) — misalnya ada
+     * yang rusak/hilang dengan opsi bayar tunai — TAPI hasil tagihannya
+     * (subtotal + denda telat + denda rusak/hilang - diskon) masih ada
+     * kekurangan. Barang BELUM ditandai selesai dikembalikan & rental_status
+     * BELUM maju ke laundry sampai ini lunas.
+     */
+    public function getNeedsReturnPaymentAttribute(): bool
+    {
+        return !is_null($this->return_assessed_at)
+            && in_array($this->rental_status, [self::STATUS_ACTIVE, self::STATUS_OVERDUE], true)
+            && $this->payment_status !== self::PAYMENT_PAID;
+    }
+
+    /**
+     * true = assessment sudah dilakukan & tagihan sudah lunas, tapi karena
+     * suatu sebab belum sempat difinalisasi otomatis -> tombol
+     * "Selesaikan Pengembalian" manual boleh dipakai (fallback/jaga-jaga).
+     * Pada alur normal ini jarang kepakai karena finalisasi terjadi
+     * otomatis begitu pembayaran kekurangan masuk (lihat
+     * RentalService::processPayment).
+     */
+    public function getCanFinalizeReturnAttribute(): bool
+    {
+        return !is_null($this->return_assessed_at)
+            && in_array($this->rental_status, [self::STATUS_ACTIVE, self::STATUS_OVERDUE], true)
+            && $this->payment_status === self::PAYMENT_PAID;
     }
 
     public function getIsOverdueAttribute(): bool

@@ -338,6 +338,101 @@ class CustomerController extends Controller
         return redirect()->route('customers.index')->with('success', 'Customer dihapus permanen dan file dibersihkan.');
     }
 
+    /**
+     * FIX BUG 500 (root cause): route 'customers.export' sudah lama
+     * terdaftar di routes/web.php mengarah ke method export() di sini,
+     * TAPI method-nya sendiri tidak pernah dibuat -> setiap admin/super_admin
+     * yang mengakses /customers/export mendapat "Call to undefined method
+     * CustomerController::export()" (500). Sales tidak pernah sampai ke
+     * error ini karena sudah diblokir lebih dulu oleh middleware
+     * role:super_admin,admin_toko (403 — ini memang perilaku yang
+     * diinginkan, bukan bug).
+     *
+     * Export CSV data customer, tunduk pada scoping cabang yang sama
+     * seperti index() (admin_toko hanya melihat customer cabangnya sendiri,
+     * super_admin melihat semua).
+     */
+    public function export(Request $request)
+    {
+        $user = Auth::user();
+
+        $customers = Customer::withCount('rentals')
+            ->with('branch')
+            ->when(!$user->isSuperAdmin(), fn($q) => $q->where('branch_id', $user->branch_id))
+            ->when($request->search, fn($q) => $q->where(function ($q2) use ($request) {
+                $q2->where('name', 'like', "%{$request->search}%")
+                   ->orWhere('phone', 'like', "%{$request->search}%")
+                   ->orWhere('id_number', 'like', "%{$request->search}%");
+            }))
+            ->when($request->blacklisted !== null, fn($q) => $q->where('is_blacklisted', $request->blacklisted === '1'))
+            ->orderBy('name')
+            ->get();
+
+        $filename = 'data-customer-' . now()->format('Y-m-d_His') . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($customers) {
+            $out = fopen('php://output', 'w');
+
+            // BOM UTF-8 supaya karakter non-ASCII (nama dgn diakritik dll)
+            // tampil benar kalau dibuka di Excel.
+            fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            // FIX: sebelumnya file CSV pakai delimiter koma (default
+            // fputcsv). Di Excel/Google Sheets ber-locale Indonesia, koma
+            // dipakai sebagai pemisah desimal, sehingga daftar (list
+            // separator) default-nya JUSTRU titik-koma (;) — bukan koma.
+            // Akibatnya waktu dibuka, seluruh baris nyangkut jadi 1 kolom
+            // (persis seperti di screenshot). Ganti delimiter ke ';' supaya
+            // otomatis kebaca rapi per-kolom di Excel/Sheets versi Indonesia,
+            // tanpa perlu langkah "Text to Columns" manual.
+            $delimiter = ';';
+
+            // FIX: kolom "Ukuran Jas (Dada/Pinggang/Pinggul)", Tinggi, dan
+            // Berat DIHAPUS dari export — data pengukuran ini sudah tidak
+            // dipakai/tidak diisi lagi (mayoritas kosong "-/-/-" di data
+            // lama), jadi hanya bikin export penuh kolom kosong yang tidak
+            // berguna.
+            fputcsv($out, [
+                'ID', 'Nama', 'No. HP', 'Alamat',
+                'Cabang', 'Total Transaksi', 'Status Blacklist',
+                'Terdaftar Sejak',
+            ], $delimiter);
+
+            foreach ($customers as $c) {
+                // Format nomor HP dari format internasional 628xxx menjadi 08xxx
+                $phone = (string) $c->phone;
+                if (str_starts_with($phone, '62')) {
+                    $phone = '0' . substr($phone, 2);
+                }
+
+                fputcsv($out, [
+                    $c->id,
+                    $c->name,
+                    $phone,
+                    $c->address ?? '-',
+                    $c->branch->name ?? '-',
+                    $c->rentals_count,
+                    $c->is_blacklisted ? 'Blacklist' : 'Normal',
+                    optional($c->created_at)->format('d/m/Y'),
+                ], $delimiter);
+            }
+
+            fclose($out);
+        };
+
+        ActivityLog::record('export_customers', 'Mengekspor data customer ke CSV', null, null, [
+            'jumlah_data' => $customers->count(),
+            'filter_search' => $request->search,
+        ]);
+
+        return response()->stream($callback, 200, $headers);
+    }
+
     public function checkDuplicate(Request $request)
     {
         $duplicate = Customer::findDuplicate(

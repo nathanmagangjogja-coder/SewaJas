@@ -25,7 +25,14 @@ class UserController extends Controller
         $branches = Branch::where('is_active', true)->get();
         $roles    = $this->roles;
 
-        return view('users.index', compact('users', 'branches', 'roles'));
+        // FIX: hitung akun non-super_admin yang belum punya cabang, supaya
+        // admin diberi tahu sebelum sales/admin_toko yang bersangkutan
+        // komplain tidak bisa login (diblokir oleh EnsureBranchScope).
+        $brokenUsersCount = User::whereNull('branch_id')
+            ->where('role', '!=', User::ROLE_SUPER_ADMIN)
+            ->count();
+
+        return view('users.index', compact('users', 'branches', 'roles', 'brokenUsersCount'));
     }
 
     public function create()
@@ -42,9 +49,15 @@ public function store(Request $request)
         'email'     => 'required|email|unique:users,email',
         'password'  => 'required|string|min:8|confirmed',
         'phone'     => 'nullable|string|max:20',
-        'branch_id' => 'nullable|exists:branches,id',
+        // FIX: branch_id WAJIB diisi untuk role admin_toko & sales.
+        // Tanpa ini, user dengan role tsb bisa tersimpan dengan branch_id NULL,
+        // dan akan diblokir (403) oleh EnsureBranchScope saat login karena
+        // dianggap "belum dikaitkan dengan cabang manapun".
+        'branch_id' => 'required_if:role,admin_toko,sales|nullable|exists:branches,id',
         'role'      => 'required|in:super_admin,admin_toko,sales',
         'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048', // ← photo → avatar
+    ], [
+        'branch_id.required_if' => 'Cabang wajib dipilih untuk role Admin Toko dan Sales.',
     ]);
 
     $avatarPath = null;
@@ -80,9 +93,12 @@ public function update(Request $request, User $user)
         'email'     => "required|email|unique:users,email,{$user->id}",
         'password'  => 'nullable|string|min:8|confirmed',
         'phone'     => 'nullable|string|max:20',
-        'branch_id' => 'nullable|exists:branches,id',
+        // FIX: sama seperti store() — branch_id wajib untuk admin_toko & sales
+        'branch_id' => 'required_if:role,admin_toko,sales|nullable|exists:branches,id',
         'role'      => 'required|in:super_admin,admin_toko,sales',
         'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048', // ← tambah ini
+    ], [
+        'branch_id.required_if' => 'Cabang wajib dipilih untuk role Admin Toko dan Sales.',
     ]);
 
     // ← Ganti foto lama

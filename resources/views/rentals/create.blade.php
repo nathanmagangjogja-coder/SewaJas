@@ -5,6 +5,47 @@
 @section('subtitle', 'Buat transaksi penyewaan jas baru')
 
 @section('content')
+@if(!$selectedBranchId)
+{{-- FIX BUG BESAR: super_admin WAJIB pilih cabang dulu sebelum bisa buat
+     transaksi. Sebelumnya halaman ini langsung tampil (tapi selalu KOSONG
+     TOTAL — 0 customer, 0 produk — karena query di controller mencari
+     branch_id = NULL yang tidak pernah cocok dengan apa pun), dan kalaupun
+     dipaksakan submit, rental tersimpan dengan branch_id NULL sehingga
+     staf manapun (termasuk sales) tidak akan bisa memproses
+     pengembaliannya nanti (403). --}}
+<div class="max-w-2xl mx-auto">
+    <div class="card p-6 sm:p-8 text-center">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4" style="background:var(--primary-tint)">
+            <i data-lucide="building-2" class="w-7 h-7" style="color:var(--primary)"></i>
+        </div>
+        <h2 class="font-playfair font-semibold text-lg mb-1" style="color:var(--text-dark)">Pilih Cabang Dulu</h2>
+        <p class="text-sm mb-6" style="color:var(--text-soft)">
+            Sebagai Super Admin, pilih cabang tujuan transaksi ini akan dibuat —
+            data customer &amp; stok barang yang tampil akan mengikuti cabang yang dipilih.
+        </p>
+
+        @if($branches->isEmpty())
+        <p class="text-sm" style="color:var(--text-soft)">Belum ada cabang aktif. Tambahkan cabang dulu di menu Cabang.</p>
+        @else
+        <div class="grid sm:grid-cols-2 gap-3">
+            @foreach($branches as $branch)
+            <a href="{{ route('rentals.create', ['branch_id' => $branch->id]) }}"
+               class="flex items-center gap-3 p-4 rounded-xl border transition-all hover:shadow-md text-left"
+               style="border-color:var(--border)">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:var(--primary-tint)">
+                    <i data-lucide="store" class="w-5 h-5" style="color:var(--primary)"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="font-semibold text-sm truncate" style="color:var(--text-dark)">{{ $branch->name }}</p>
+                    <p class="text-xs" style="color:var(--text-soft)">{{ $branch->code }}</p>
+                </div>
+            </a>
+            @endforeach
+        </div>
+        @endif
+    </div>
+</div>
+@else
 @php
     $productsData = $products->map(fn($p) => [
         'id' => $p->id,
@@ -17,6 +58,19 @@
 @endphp
 
 <div x-data="rentalForm()" class="space-y-4">
+
+    @if(auth()->user()->isSuperAdmin())
+    {{-- Indikator cabang yang sedang dipilih + link ganti cabang --}}
+    <div class="card px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <i data-lucide="store" class="w-4 h-4" style="color:var(--primary)"></i>
+            <span class="text-sm font-medium" style="color:var(--text-dark)">
+                Cabang: {{ $branches->firstWhere('id', $selectedBranchId)?->name ?? '-' }}
+            </span>
+        </div>
+        <a href="{{ route('rentals.create') }}" class="text-xs font-semibold" style="color:var(--primary)">Ganti Cabang</a>
+    </div>
+    @endif
 
     {{-- ===== STEP INDICATOR ===== --}}
     <div class="card p-4">
@@ -51,6 +105,12 @@
 
     <form method="POST" action="{{ route('rentals.store') }}" enctype="multipart/form-data" @submit.prevent="submitForm">
         @csrf
+        {{-- FIX BUG BESAR: teruskan cabang yang dipilih super_admin ke
+             store(). Untuk staf biasa (non-super-admin), field ini kosong
+             & diabaikan sepenuhnya (mereka selalu pakai cabangnya sendiri). --}}
+        @if($selectedBranchId)
+        <input type="hidden" name="branch_id" value="{{ $selectedBranchId }}">
+        @endif
 
         {{-- ===== STEP 1: CUSTOMER + PILIH PAKET ===== --}}
         <div x-show="currentStep === 1" class="space-y-4">
@@ -739,6 +799,7 @@
 
     </form>
 </div>
+@endif
 @endsection
 
 @push('scripts')

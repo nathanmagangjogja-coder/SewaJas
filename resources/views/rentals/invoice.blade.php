@@ -96,9 +96,19 @@
                 <p class="text-xs font-bold uppercase tracking-wider mb-3" style="color: var(--inv-accent)">Info Transaksi</p>
                 <div class="space-y-2">
                     <div>
-                        <p class="text-xs" style="color: var(--inv-text-secondary)">Diproses Oleh</p>
+                        <p class="text-xs" style="color: var(--inv-text-secondary)">Dibuat Oleh</p>
                         <p class="font-semibold text-sm" style="color: var(--inv-text)">{{ $rental->createdBy->name }}</p>
                     </div>
+                    {{-- FITUR BARU: staf yang benar-benar memproses pengembalian
+                         seringkali berbeda orang dari yang membuat transaksi
+                         awal -> ditampilkan terpisah, hanya muncul kalau
+                         barang sudah diproses retur (returnedBy terisi). --}}
+                    @if($rental->returnedBy)
+                    <div>
+                        <p class="text-xs" style="color: var(--inv-text-secondary)">Dikembalikan Oleh</p>
+                        <p class="font-semibold text-sm" style="color: var(--inv-text)">{{ $rental->returnedBy->name }}</p>
+                    </div>
+                    @endif
                     <div>
                         <p class="text-xs" style="color: var(--inv-text-secondary)">Cabang</p>
                         <p class="font-semibold text-sm" style="color: var(--inv-text)">{{ $rental->branch->name }}</p>
@@ -148,21 +158,12 @@
             </table>
         </div>
 
-        <!-- Totals + QR -->
-        <div class="flex justify-between items-end pt-4 border-t" style="border-color: var(--inv-border)">
-
-            <!-- QR Code -->
-            @if($rental->qr_code)
-            <div class="text-center">
-                <img src="{{ asset('storage/' . $rental->qr_code) }}" alt="QR" class="w-24 h-24 mx-auto">
-                <p class="text-xs mt-1" style="color: var(--inv-text-secondary)">Scan untuk verifikasi</p>
-            </div>
-            @else
-            <div></div>
-            @endif
-
-            <!-- Total -->
-            <div class="w-64">
+        <!-- Totals ─── FIX: QR dipindah keluar dari sini (lihat "Tiket
+             Verifikasi" di bawah dekat tanda tangan) supaya jadi elemen
+             besar & benar-benar dominan/center di halaman, gaya e-tiket
+             KAI Access — bukan lagi ikon kecil di samping rincian total. -->
+        <div class="pt-4 border-t" style="border-color: var(--inv-border)">
+            <div class="w-full sm:w-64 sm:ml-auto">
                 <div class="space-y-2">
                     <div class="flex justify-between text-sm">
                         <span style="color: var(--inv-text-secondary)">Subtotal</span>
@@ -275,11 +276,29 @@
             <div class="flex justify-end mt-8">
                 <div class="text-center">
                 <div style="height: 60px; border-bottom: 1px solid var(--inv-border-strong); width: 160px;"></div>
-                <p class="text-xs mt-2" style="color: var(--inv-text-secondary)">{{ $rental->createdBy->name }}</p>
-                <p class="text-xs" style="color: var(--inv-text-secondary)">Petugas / Admin</p>
+                {{-- FIX: tanda tangan sekarang ikut staf yang relevan dengan
+                     status transaksi saat ini — kalau barang sudah
+                     dikembalikan, yang menandatangani adalah staf yang
+                     memproses retur (returnedBy), bukan selalu staf yang
+                     membuat transaksi di awal (createdBy). --}}
+                <p class="text-xs mt-2" style="color: var(--inv-text-secondary)">{{ ($rental->returnedBy ?? $rental->createdBy)->name }}</p>
+                <p class="text-xs" style="color: var(--inv-text-secondary)">{{ $rental->returnedBy ? 'Petugas Penerima Retur' : 'Petugas / Admin' }}</p>
                 </div>
             </div>
         </div>
+
+        {{-- FITUR BARU: ticket-stub QR — gaya e-tiket KAI Access. Barcode
+             besar, benar-benar di tengah halaman (bukan lagi ikon kecil di
+             samping rincian total), dengan garis putus-putus di atas
+             seperti sobekan tiket, plus nomor invoice diulang di bawahnya. --}}
+        @if($rental->qr_code)
+        <div class="mt-8 pt-6 text-center" style="border-top: 2px dashed var(--inv-accent)">
+            <p class="text-[10px] font-bold uppercase tracking-[0.2em] mb-3" style="color: var(--inv-accent)">Tiket Verifikasi Transaksi</p>
+            <img src="{{ asset('storage/' . $rental->qr_code) }}" alt="QR" class="w-36 h-36 sm:w-40 sm:h-40 mx-auto">
+            <p class="text-sm font-bold font-mono tracking-widest mt-3" style="color: var(--inv-text)">{{ $rental->invoice_number }}</p>
+            <p class="text-xs mt-1" style="color: var(--inv-text-secondary)">Scan kode ini untuk verifikasi atau proses pengembalian barang</p>
+        </div>
+        @endif
 
         <!-- Bottom -->
         <div class="mt-8 text-center border-t pt-4" style="border-color: var(--inv-border)">

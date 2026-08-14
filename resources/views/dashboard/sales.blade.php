@@ -81,62 +81,63 @@
         </div>
     </div>
 
-    {{-- Aksi Cepat - sesuai hak akses sales --}}
-    <div class="card p-6">
+    {{-- Aksi Cepat - sesuai hak akses sales.
+         FIX (redesign): sebelumnya grid-cols-2 tetap (4 kartu besar berukuran
+         sama, monoton, dan di layar HP jadi 2x2 kotak-kotak tinggi yang
+         makan banyak scroll). Sekarang dibuat hierarki visual: 1 tombol
+         utama besar & menonjol (aksi paling sering dipakai sales) + 3 tombol
+         kompak sebaris di bawahnya — tetap 3 kolom bahkan di layar paling
+         sempit sekalipun, jadi jauh lebih ringkas & tidak monoton. --}}
+    <div class="card p-5 sm:p-6">
         <h3 class="font-playfair font-semibold text-base mb-4" style="color:var(--text-dark)">Aksi Cepat</h3>
-        <div class="grid grid-cols-2 gap-4">
 
-            {{-- Buat Penyewaan Baru --}}
-            <a href="{{ route('rentals.create') }}"
-               class="group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all hover:scale-[1.02] cursor-pointer"
-               style="border-color:var(--primary); background:linear-gradient(135deg, #FFFDF9, #FFF8EE)">
-                <div class="w-14 h-14 rounded-2xl flex items-center justify-center"
-                     style="background:linear-gradient(135deg, #D6B98C, #C4A478)">
-                    <i data-lucide="plus-circle" class="w-7 h-7" style="color:#1E1A16"></i>
-                </div>
-                <div class="text-center">
-                    <p class="font-bold" style="color:var(--text-dark)">Buat Penyewaan</p>
-                    <p class="text-xs mt-0.5" style="color:var(--text-soft)">Input transaksi baru</p>
-                </div>
-            </a>
+        {{-- Aksi utama — ditonjolkan beda dari yang lain (background gelap +
+             ikon emas, ada panah "lanjut" yang bergerak saat hover/tap) --}}
+        <a href="{{ route('rentals.create') }}"
+           class="group relative flex items-center gap-4 p-4 sm:p-5 rounded-2xl overflow-hidden mb-3 transition-transform active:scale-[0.98]"
+           style="background:linear-gradient(135deg, var(--primary-dark), var(--primary))">
+            <div class="absolute -right-8 -top-8 w-32 h-32 rounded-full pointer-events-none" style="background:rgba(255,255,255,0.08)"></div>
+            <div class="absolute -right-2 bottom-0 w-16 h-16 rounded-full pointer-events-none" style="background:rgba(255,255,255,0.06)"></div>
+            <div class="relative w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(135deg,#FDE68A,#F59E0B)">
+                <i data-lucide="plus-circle" class="w-6 h-6 sm:w-7 sm:h-7" style="color:#78350F"></i>
+            </div>
+            <div class="relative flex-1 min-w-0">
+                <p class="font-bold text-white text-sm sm:text-base">Buat Penyewaan</p>
+                <p class="text-xs mt-0.5" style="color:rgba(255,255,255,0.7)">Input transaksi baru</p>
+            </div>
+            <i data-lucide="arrow-right" class="relative w-5 h-5 flex-shrink-0 transition-transform group-hover:translate-x-1" style="color:rgba(255,255,255,0.6)"></i>
+        </a>
 
-            {{-- Scan QR / Pengembalian --}}
+        {{-- Aksi sekunder — kompak, tetap 3 kolom sebaris walau di layar
+             sempit, tiap tombol punya warna aksen sendiri biar tidak
+             monoton tapi ukurannya jauh lebih kecil dari aksi utama. --}}
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+
             <a href="{{ route('rentals.scan') }}"
-               class="group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all hover:scale-[1.02] cursor-pointer"
-               style="border-color:#3B82F6; background:linear-gradient(135deg, #EFF6FF, #DBEAFE)">
-                <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:#3B82F6">
-                    <i data-lucide="scan-qr-code" class="w-7 h-7 text-white"></i>
+               class="flex flex-col items-center gap-2 py-3 px-1.5 sm:py-4 rounded-xl transition-all active:scale-95 hover:-translate-y-0.5"
+               style="background:var(--surf-sky)">
+                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center" style="background:var(--color-sky)">
+                    <i data-lucide="scan-qr-code" class="w-4.5 h-4.5 sm:w-5 sm:h-5 text-white"></i>
                 </div>
-                <div class="text-center">
-                    <p class="font-bold" style="color:var(--text-dark)">Scan QR / Kembali</p>
-                    <p class="text-xs mt-0.5" style="color:var(--text-soft)">Proses pengembalian</p>
-                </div>
+                <p class="text-[10.5px] sm:text-xs font-semibold text-center leading-tight" style="color:var(--text-dark)">Scan QR /<br>Kembali</p>
             </a>
 
-            {{-- Cari Customer --}}
             <a href="{{ route('customers.index') }}"
-               class="group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all hover:scale-[1.02] cursor-pointer"
-               style="border-color:#10B981; background:linear-gradient(135deg, #F0FDF4, #DCFCE7)">
-                <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:#10B981">
-                    <i data-lucide="users" class="w-7 h-7 text-white"></i>
+               class="flex flex-col items-center gap-2 py-3 px-1.5 sm:py-4 rounded-xl transition-all active:scale-95 hover:-translate-y-0.5"
+               style="background:var(--surf-emerald)">
+                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center" style="background:var(--color-emerald)">
+                    <i data-lucide="users" class="w-4.5 h-4.5 sm:w-5 sm:h-5 text-white"></i>
                 </div>
-                <div class="text-center">
-                    <p class="font-bold" style="color:var(--text-dark)">Cari Customer</p>
-                    <p class="text-xs mt-0.5" style="color:var(--text-soft)">Lihat / tambah customer</p>
-                </div>
+                <p class="text-[10.5px] sm:text-xs font-semibold text-center leading-tight" style="color:var(--text-dark)">Cari<br>Customer</p>
             </a>
 
-            {{-- Tambah Customer Baru --}}
             <a href="{{ route('customers.create') }}"
-               class="group flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all hover:scale-[1.02] cursor-pointer"
-               style="border-color:#8B5CF6; background:linear-gradient(135deg, #F5F3FF, #EDE9FE)">
-                <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:#8B5CF6">
-                    <i data-lucide="user-plus" class="w-7 h-7 text-white"></i>
+               class="flex flex-col items-center gap-2 py-3 px-1.5 sm:py-4 rounded-xl transition-all active:scale-95 hover:-translate-y-0.5"
+               style="background:rgba(139,92,246,0.10)">
+                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center" style="background:var(--color-violet)">
+                    <i data-lucide="user-plus" class="w-4.5 h-4.5 sm:w-5 sm:h-5 text-white"></i>
                 </div>
-                <div class="text-center">
-                    <p class="font-bold" style="color:var(--text-dark)">Tambah Customer</p>
-                    <p class="text-xs mt-0.5" style="color:var(--text-soft)">Daftarkan pelanggan baru</p>
-                </div>
+                <p class="text-[10.5px] sm:text-xs font-semibold text-center leading-tight" style="color:var(--text-dark)">Tambah<br>Customer</p>
             </a>
         </div>
     </div>

@@ -6,6 +6,22 @@
 @section('content')
 <div class="space-y-5">
 
+    {{-- FIX: peringatan akun yang belum dikaitkan ke cabang (tidak bisa login) --}}
+    @if($brokenUsersCount > 0)
+    <div class="card p-4 flex items-center gap-3" style="background:#FFF1F0;border:1px solid #FECACA">
+        <i data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0" style="color:#C0392B"></i>
+        <div>
+            <p class="text-sm font-semibold" style="color:#C0392B">
+                {{ $brokenUsersCount }} akun belum dikaitkan ke cabang manapun
+            </p>
+            <p class="text-xs" style="color:#C0392B">
+                Akun Admin Toko / Sales tanpa cabang akan otomatis ditolak (403) saat mencoba login.
+                Cari badge <strong>"Belum dikaitkan cabang"</strong> di tabel bawah dan lengkapi cabangnya.
+            </p>
+        </div>
+    </div>
+    @endif
+
     {{-- Info Role --}}
     <div class="grid grid-cols-3 gap-4">
         @foreach([
@@ -128,7 +144,14 @@
                         @elseif($user->role === 'super_admin')
                             <span class="text-xs" style="color:var(--primary)">Semua Cabang</span>
                         @else
-                            <span class="text-xs text-red-400">Belum dikaitkan</span>
+                            {{-- FIX: perjelas jadi badge agar admin tidak melewatkan akun
+                                 yang tidak akan bisa login/load dashboard --}}
+                            <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full"
+                                  style="background:#FFF1F0;color:#C0392B;border:1px solid #FECACA"
+                                  title="Akun ini akan diblokir saat login karena belum punya cabang">
+                                <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+                                Belum dikaitkan cabang
+                            </span>
                         @endif
                     </td>
 

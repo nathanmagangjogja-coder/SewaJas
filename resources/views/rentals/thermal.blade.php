@@ -180,6 +180,15 @@
         [{{ strtoupper($rental->status_label) }}] [{{ strtoupper($rental->payment_status_label) }}]
     </div>
 
+    {{-- FITUR BARU: staf yang benar-benar memproses pengembalian bisa beda
+         orang dari yang membuat transaksi (header di atas). Hanya muncul
+         kalau barang sudah diproses retur. --}}
+    @if($rental->returnedBy)
+    <div class="center" style="font-size: 9px; margin-top: 2px;">
+        Dikembalikan oleh: <strong>{{ $rental->returnedBy->name }}</strong>
+    </div>
+    @endif
+
     <!-- Guarantee -->
     @if($rental->guarantees->count() > 0)
     <div class="divider"></div>

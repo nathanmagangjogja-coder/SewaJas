@@ -66,6 +66,21 @@ class User extends Authenticatable
         return $this->role === $roles;
     }
 
+    /**
+     * FIX: method ini dipanggil oleh App\Http\Middleware\EnsureBranchAccess
+     * tapi sebelumnya tidak pernah didefinisikan → akan fatal error
+     * (Call to undefined method) begitu middleware 'branch.access' dipakai
+     * di sebuah route. Ditambahkan agar middleware tsb aman digunakan.
+     */
+    public function canAccessBranch(int $branchId): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        return $this->branch_id === $branchId;
+    }
+
     public function getRoleLabelAttribute(): string
     {
         return self::ROLES[$this->role] ?? $this->role;
