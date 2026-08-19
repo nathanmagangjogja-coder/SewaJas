@@ -232,6 +232,50 @@
                     @enderror
                 </div>
 
+                {{-- Cabang --}}
+                <div class="card p-6 space-y-4">
+                    <div class="flex items-center gap-2 pb-3 border-b" style="border-color:var(--border)">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:var(--secondary)">
+                            <i data-lucide="map-pin" class="w-3.5 h-3.5" style="color:var(--primary)"></i>
+                        </div>
+                        <h2 class="font-semibold text-sm" style="color:var(--text-dark)">Cabang</h2>
+                    </div>
+
+                    @if(auth()->user()->isSuperAdmin())
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color:var(--text-dark)">
+                            Buat Produk untuk Cabang <span class="text-red-500">*</span>
+                        </label>
+                        <p class="text-xs mb-3" style="color:var(--text-soft)">
+                            Centang satu atau beberapa cabang. Produk yang sama persis
+                            (nama, harga, foto, kategori, dll) akan langsung dibuat di semua
+                            cabang yang dicentang — kode produk & QR dibuat sendiri-sendiri
+                            per cabang, begitu juga stoknya.
+                        </p>
+
+                        <div class="space-y-2 max-h-64 overflow-y-auto pr-1" id="branch-checklist">
+                            @foreach($branches as $b)
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer hover:bg-gray-50 transition-colors"
+                                       style="border-color:var(--border)">
+                                    <input type="checkbox" name="branch_ids[]" value="{{ $b->id }}"
+                                           class="w-4 h-4 rounded branch-checkbox"
+                                           {{ in_array($b->id, old('branch_ids', [])) ? 'checked' : '' }}>
+                                    <span class="text-sm" style="color:var(--text-dark)">{{ $b->name }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                        <p id="branch-count-note" class="text-xs font-medium hidden" style="color:var(--primary)"></p>
+                        @error('branch_ids')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+                    </div>
+                    @else
+                    <div class="rounded-xl p-3 text-sm flex items-center gap-2" style="background:var(--secondary);color:var(--text-dark)">
+                        <i data-lucide="store" class="w-4 h-4 flex-shrink-0" style="color:var(--primary)"></i>
+                        {{ auth()->user()->branch->name ?? 'Cabang Anda' }}
+                    </div>
+                    <p class="text-xs" style="color:var(--text-soft)">Produk otomatis masuk ke cabang Anda.</p>
+                    @endif
+                </div>
+
                 {{-- Status & Publish --}}
                 <div class="card p-6 space-y-4">
                     <div class="flex items-center gap-2 pb-3 border-b" style="border-color:var(--border)">
@@ -293,6 +337,23 @@
 @push('scripts')
 <script>
     lucide.createIcons();
+
+    // ── Live counter: jumlah cabang yang akan dibuatkan produknya ──────────
+    const branchCheckboxes = document.querySelectorAll('.branch-checkbox');
+    const branchCountNote  = document.getElementById('branch-count-note');
+
+    function updateBranchCountNote() {
+        if (!branchCountNote) return;
+        const checked = document.querySelectorAll('.branch-checkbox:checked').length;
+        if (checked > 1) {
+            branchCountNote.textContent = `Produk yang sama akan langsung dibuat di ${checked} cabang.`;
+            branchCountNote.classList.remove('hidden');
+        } else {
+            branchCountNote.classList.add('hidden');
+        }
+    }
+    branchCheckboxes.forEach(cb => cb.addEventListener('change', updateBranchCountNote));
+    updateBranchCountNote();
 
     // Image preview
     const input    = document.getElementById('image-input');

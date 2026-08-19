@@ -18,6 +18,8 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 // FIX: import AuditLogController dengan namespace Admin yang benar
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\SupportMessageController;
+use App\Http\Controllers\InvoiceSettingController;
+use App\Http\Controllers\PaymentSettingController;
 
 // ── Invoice publik (tanpa auth) — pakai token acak, BUKAN invoice_number ──────
 Route::get('/invoice/{token}', [RentalController::class, 'invoicePublic'])
@@ -25,11 +27,6 @@ Route::get('/invoice/{token}', [RentalController::class, 'invoicePublic'])
 
 Route::get('/invoice/{token}/pdf', [RentalController::class, 'invoicePdfPublic'])
     ->name('rentals.invoice.pdf.public');
-
-Route::get('/qris-demo/{rental}', [RentalController::class, 'qrisDemo'])
-    ->name('rentals.qris-demo');
-Route::get('/qris-demo/{rental}/qr', [RentalController::class, 'qrisDemoQr'])
-    ->name('rentals.qris-demo.qr');
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
@@ -257,6 +254,22 @@ Route::middleware(['auth', \App\Http\Middleware\EnsureBranchScope::class])->grou
             Route::get('/{package}/penalty-preview', [PackageController::class, 'penaltyPreview'])->name('penalty-preview');
         });
 
+    Route::middleware('role:super_admin')
+        ->prefix('settings/invoice')->name('invoice-settings.')->group(function () {
+            Route::get('/', [InvoiceSettingController::class, 'edit'])->name('edit');
+            Route::patch('/', [InvoiceSettingController::class, 'update'])->name('update');
+            Route::post('/reset', [InvoiceSettingController::class, 'reset'])->name('reset');
+        });
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // OPSI PEMBAYARAN (metode aktif, rekening bank, foto QRIS & resolusinya)
+    // ═════════════════════════════════════════════════════════════════════════
+    Route::middleware('role:super_admin')
+        ->prefix('settings/payment')->name('payment-settings.')->group(function () {
+            Route::get('/', [PaymentSettingController::class, 'edit'])->name('edit');
+            Route::patch('/', [PaymentSettingController::class, 'update'])->name('update');
+        });
+
     // ═════════════════════════════════════════════════════════════════════════
     // CABANG
     // ═════════════════════════════════════════════════════════════════════════
@@ -280,6 +293,7 @@ Route::middleware(['auth', \App\Http\Middleware\EnsureBranchScope::class])->grou
             Route::get('/create',        [UserController::class, 'create'])->name('create');
             Route::post('/',             [UserController::class, 'store'])->name('store');
             Route::get('/{user}/edit',   [UserController::class, 'edit'])->name('edit');
+            Route::get('/{user}',        [UserController::class, 'show'])->name('show');
             Route::patch('/{user}',      [UserController::class, 'update'])->name('update');
             Route::patch('/{user}/toggle',[UserController::class, 'toggle'])->name('toggle');
             Route::delete('/{user}',     [UserController::class, 'destroy'])->name('destroy');

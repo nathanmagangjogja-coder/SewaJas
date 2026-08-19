@@ -1,9 +1,26 @@
+@php
+    $invoiceSettings = $invoiceSettings ?? \App\Models\Setting::invoice();
+    $invoiceCompanyName = $invoiceSettings['invoice_company_name'] ?: config('app.name');
+    $invoiceTagline = $invoiceSettings['invoice_tagline'] ?: 'Premium Suit Rental';
+    $invoiceLogoPath = null;
+
+    if ($invoiceSettings['invoice_show_logo']) {
+        if (!empty($invoiceSettings['invoice_logo_path'])) {
+            $invoiceLogoPath = asset('storage/' . $invoiceSettings['invoice_logo_path']);
+        } elseif ($invoiceSettings['invoice_use_branch_logo'] && $rental->branch?->logo) {
+            $invoiceLogoPath = asset('storage/' . $rental->branch->logo);
+        }
+    }
+
+    $invoiceTerms = trim($invoiceSettings['invoice_terms'] ?? '');
+    $invoiceFooter = $invoiceSettings['invoice_footer_text'] ?: ('Dokumen ini dibuat otomatis oleh sistem - ' . $invoiceCompanyName . ' - ' . now()->format('d M Y H:i') . ' WIB');
+@endphp
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice {{ $rental->invoice_number }} — {{ config('app.name') }}</title>
+    <title>Invoice {{ $rental->invoice_number }} - {{ $invoiceCompanyName }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -31,12 +48,12 @@
     <div class="no-print max-w-4xl mx-auto mb-4 flex items-center justify-between">
         <div class="flex items-center gap-2">
             {{-- Logo / Brand --}}
-            <span class="font-playfair text-lg font-bold" style="color: #2B2520">{{ config('app.name') }}</span>
+            <span class="font-playfair text-lg font-bold" style="color: {{ $invoiceSettings['invoice_heading_color'] }}">{{ $invoiceCompanyName }}</span>
         </div>
         <div class="flex items-center gap-2">
-            <a href="{{ route('rentals.pdf', $rental) }}"
+            <a href="{{ route('rentals.invoice.pdf.public', $rental->public_token) }}"
                class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-               style="background: #f0ebe3; color: #2B2520">
+               style="background: #f0ebe3; color: {{ $invoiceSettings['invoice_heading_color'] }}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                 </svg>
@@ -44,7 +61,7 @@
             </a>
             <button onclick="window.print()"
                     class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                    style="background: #D6B98C">
+                    style="background: {{ $invoiceSettings['invoice_primary_color'] }}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
                 </svg>
@@ -58,10 +75,13 @@
         <div class="p-8">
 
             {{-- Header --}}
-            <div class="flex justify-between items-start pb-6 border-b-2" style="border-color: #D6B98C">
+            <div class="flex justify-between items-start pb-6 border-b-2" style="border-color: {{ $invoiceSettings['invoice_primary_color'] }}">
                 <div>
-                    <h1 class="font-playfair text-2xl font-bold" style="color: #2B2520">{{ config('app.name') }}</h1>
-                    <p class="text-xs font-semibold tracking-widest mt-1" style="color: #D6B98C">PREMIUM SUIT RENTAL</p>
+                    @if($invoiceLogoPath)
+                        <img src="{{ $invoiceLogoPath }}" alt="Logo {{ $invoiceCompanyName }}" class="h-12 max-w-[180px] object-contain mb-2">
+                    @endif
+                    <h1 class="font-playfair text-2xl font-bold" style="color: {{ $invoiceSettings['invoice_heading_color'] }}">{{ $invoiceCompanyName }}</h1>
+                    <p class="text-xs font-semibold tracking-widest mt-1 uppercase" style="color: {{ $invoiceSettings['invoice_primary_color'] }}">{{ $invoiceTagline }}</p>
                     <div class="mt-3 text-xs leading-6" style="color: #6B6B6B">
                         <p class="font-semibold" style="color: #2B2B2B">{{ $rental->branch->name }}</p>
                         <p>{{ $rental->branch->address }}</p>
@@ -70,7 +90,7 @@
                     </div>
                 </div>
                 <div class="text-right">
-                    <p class="text-3xl font-bold tracking-wider" style="color: #D6B98C">INVOICE</p>
+                    <p class="text-3xl font-bold tracking-wider" style="color: {{ $invoiceSettings['invoice_primary_color'] }}">INVOICE</p>
                     <p class="font-mono font-bold text-lg mt-1" style="color: #2B2B2B">{{ $rental->invoice_number }}</p>
                     <p class="text-xs mt-1" style="color: #6B6B6B">{{ $rental->created_at->format('d F Y, H:i') }} WIB</p>
                     <div class="mt-3 inline-block px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider
@@ -232,10 +252,7 @@
             <div class="flex flex-col sm:flex-row justify-between items-end mt-8 pt-6 border-t gap-6" style="border-color: #F0EBE3">
                 <div class="text-xs leading-6" style="color: #6B6B6B">
                     <p class="font-semibold text-sm mb-2" style="color: #2B2B2B">Syarat & Ketentuan:</p>
-                    <p>1. Barang wajib dikembalikan sesuai tanggal jatuh tempo.</p>
-                    <p>2. Keterlambatan pengembalian akan dikenakan denda sesuai dengan ketentuan yang berlaku.</p>
-                    <p>3. Kerusakan / kehilangan menjadi tanggung jawab penyewa.</p>
-                    <p>4. Jaminan dikembalikan setelah barang kembali dalam kondisi baik.</p>
+                    {!! nl2br(e($invoiceTerms)) !!}
                 </div>
                 <div class="text-center flex-shrink-0">
                     <div style="height: 60px; border-bottom: 1px solid #2B2B2B; width: 160px;"></div>
@@ -244,13 +261,13 @@
                 </div>
             </div>
 
-            {{-- FITUR BARU: ticket-stub QR — gaya e-tiket KAI Access. Barcode
+            {{--Barcode
                  besar, benar-benar di tengah halaman, dengan garis
                  putus-putus di atas seperti sobekan tiket, plus nomor
                  invoice diulang di bawahnya. --}}
-            @if($rental->qr_code)
-            <div class="mt-8 pt-6 text-center" style="border-top: 2px dashed #D6B98C">
-                <p class="text-[10px] font-bold uppercase tracking-[0.2em] mb-3" style="color: #D6B98C">Tiket Verifikasi Transaksi</p>
+            @if($invoiceSettings['invoice_show_qr'] && $rental->qr_code)
+            <div class="mt-8 pt-6 text-center" style="border-top: 2px dashed {{ $invoiceSettings['invoice_primary_color'] }}">
+                <p class="text-[10px] font-bold uppercase tracking-[0.2em] mb-3" style="color: {{ $invoiceSettings['invoice_primary_color'] }}">Tiket Verifikasi Transaksi</p>
                 <img src="{{ asset('storage/' . $rental->qr_code) }}" alt="QR" class="w-36 h-36 sm:w-40 sm:h-40 mx-auto">
                 <p class="text-sm font-bold font-mono tracking-widest mt-3" style="color: #2B2B2B">{{ $rental->invoice_number }}</p>
                 <p class="text-xs mt-1" style="color: #6B6B6B">Scan kode ini untuk verifikasi atau proses pengembalian barang</p>
@@ -260,7 +277,7 @@
             {{-- Footer --}}
             <div class="mt-8 text-center border-t pt-4" style="border-color: #F0EBE3">
                 <p class="text-xs" style="color: #6B6B6B">
-                    Dokumen ini dibuat otomatis oleh sistem • {{ config('app.name') }} • {{ now()->format('d M Y H:i') }} WIB
+                    {{ $invoiceFooter }}
                 </p>
             </div>
 
@@ -269,7 +286,7 @@
 
     {{-- Powered by footer --}}
     <div class="no-print max-w-4xl mx-auto mt-4 text-center">
-        <p class="text-xs" style="color: #9CA3AF">{{ config('app.name') }} &copy; {{ date('Y') }}</p>
+        <p class="text-xs" style="color: #9CA3AF">{{ $invoiceCompanyName }} &copy; {{ date('Y') }}</p>
     </div>
 
 </body>

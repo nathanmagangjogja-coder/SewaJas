@@ -1,3 +1,28 @@
+@php
+    $invoiceSettings = $invoiceSettings ?? \App\Models\Setting::invoice();
+    $invoiceCompanyName = $invoiceSettings['invoice_company_name'] ?: config('app.name', 'JasRental');
+    $invoiceTagline = $invoiceSettings['invoice_tagline'] ?: 'Premium Suit Rental';
+    $primary = $invoiceSettings['invoice_primary_color'];
+    $heading = $invoiceSettings['invoice_heading_color'];
+    $text = $invoiceSettings['invoice_text_color'];
+    $muted = $invoiceSettings['invoice_muted_color'];
+    $pdfLogoPath = null;
+
+    if ($invoiceSettings['invoice_show_logo']) {
+        if (!empty($invoiceSettings['invoice_logo_path'])) {
+            $candidate = public_path('storage/' . $invoiceSettings['invoice_logo_path']);
+            $pdfLogoPath = file_exists($candidate) ? $candidate : null;
+        } elseif ($invoiceSettings['invoice_use_branch_logo'] && $rental->branch?->logo) {
+            $candidate = public_path('storage/' . $rental->branch->logo);
+            $pdfLogoPath = file_exists($candidate) ? $candidate : null;
+        } elseif (file_exists(public_path('images/logo.png'))) {
+            $pdfLogoPath = public_path('images/logo.png');
+        }
+    }
+
+    $invoiceTerms = preg_split('/\r\n|\r|\n/', trim($invoiceSettings['invoice_terms'] ?? '')) ?: [];
+    $invoiceFooter = $invoiceSettings['invoice_footer_text'] ?: ('Dokumen ini dibuat otomatis oleh sistem - ' . $invoiceCompanyName . ' - ' . now()->format('d M Y, H:i') . ' WIB');
+@endphp
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -5,19 +30,19 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'DejaVu Sans', sans-serif; font-size: 11px; color: #2B2B2B; background: #FFFFFF; }
+    body { font-family: 'DejaVu Sans', sans-serif; font-size: 11px; color: {{ $text }}; background: #FFFFFF; }
 
     .page { padding: 28px 32px; }
 
-    .header-table { width: 100%; border-collapse: collapse; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 2px solid #D6B98C; }
-    .brand-name { font-size: 22px; font-weight: bold; color: #2B2520; letter-spacing: -0.5px; }
-    .brand-tagline { font-size: 9px; color: #D6B98C; text-transform: uppercase; letter-spacing: 2px; margin-top: 2px; }
-    .brand-address { font-size: 9px; color: #6B6B6B; margin-top: 6px; line-height: 1.5; }
+    .header-table { width: 100%; border-collapse: collapse; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 2px solid {{ $primary }}; }
+    .brand-name { font-size: 22px; font-weight: bold; color: {{ $heading }}; letter-spacing: -0.5px; }
+    .brand-tagline { font-size: 9px; color: {{ $primary }}; text-transform: uppercase; letter-spacing: 2px; margin-top: 2px; }
+    .brand-address { font-size: 9px; color: {{ $muted }}; margin-top: 6px; line-height: 1.5; }
 
     .invoice-badge { text-align: right; }
-    .invoice-title { font-size: 20px; font-weight: bold; color: #D6B98C; letter-spacing: 1px; text-transform: uppercase; }
-    .invoice-number { font-size: 12px; font-weight: bold; color: #2B2B2B; margin-top: 4px; font-family: 'Courier New', monospace; }
-    .invoice-date { font-size: 9px; color: #6B6B6B; margin-top: 3px; }
+    .invoice-title { font-size: 20px; font-weight: bold; color: {{ $primary }}; letter-spacing: 1px; text-transform: uppercase; }
+    .invoice-number { font-size: 12px; font-weight: bold; color: {{ $text }}; margin-top: 4px; font-family: 'Courier New', monospace; }
+    .invoice-date { font-size: 9px; color: {{ $muted }}; margin-top: 3px; }
 
     .status-ribbon { text-align: center; padding: 5px; margin-bottom: 16px; border-radius: 6px; font-size: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
     .status-paid { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
@@ -26,18 +51,18 @@
 
     .info-grid { width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 20px; }
     .info-box { background: #F8F5F0; border: 1px solid #E5DDD2; border-radius: 8px; padding: 12px; vertical-align: top; width: 33%; }
-    .info-box-title { font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: #D6B98C; margin-bottom: 8px; }
-    .info-label { font-size: 9px; color: #6B6B6B; margin-bottom: 1px; }
-    .info-value { font-size: 10px; font-weight: bold; color: #2B2B2B; margin-bottom: 6px; }
+    .info-box-title { font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: {{ $primary }}; margin-bottom: 8px; }
+    .info-label { font-size: 9px; color: {{ $muted }}; margin-bottom: 1px; }
+    .info-value { font-size: 10px; font-weight: bold; color: {{ $text }}; margin-bottom: 6px; }
 
     .items-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    .items-table thead tr { background: #2B2520; }
-    .items-table thead th { padding: 8px 10px; font-size: 9px; font-weight: bold; color: #D6B98C; text-align: left; text-transform: uppercase; letter-spacing: 0.5px; }
+    .items-table thead tr { background: {{ $heading }}; }
+    .items-table thead th { padding: 8px 10px; font-size: 9px; font-weight: bold; color: {{ $primary }}; text-align: left; text-transform: uppercase; letter-spacing: 0.5px; }
     .items-table thead th.right { text-align: right; }
     .items-table thead th.center { text-align: center; }
     .items-table tbody tr { border-bottom: 1px solid #F0EBE4; }
     .items-table tbody tr.even { background: #FDFBF8; }
-    .items-table tbody td { padding: 8px 10px; font-size: 10px; color: #2B2B2B; }
+    .items-table tbody td { padding: 8px 10px; font-size: 10px; color: {{ $text }}; }
     .items-table tbody td.right { text-align: right; }
     .items-table tbody td.center { text-align: center; }
 
@@ -45,11 +70,11 @@
     .totals-box { width: 240px; }
     .total-row { width: 100%; border-bottom: 1px solid #F0EBE4; }
     .total-row td { padding: 4px 0; font-size: 10px; }
-    .total-row .label { color: #6B6B6B; }
-    .total-row .value { font-weight: 600; color: #2B2B2B; text-align: right; }
-    .total-final td { border-top: 2px solid #D6B98C; border-bottom: none; padding-top: 8px; }
-    .total-final .label { font-size: 12px; font-weight: bold; color: #2B2B2B; }
-    .total-final .value { font-size: 14px; font-weight: bold; color: #D6B98C; text-align: right; }
+    .total-row .label { color: {{ $muted }}; }
+    .total-row .value { font-weight: 600; color: {{ $text }}; text-align: right; }
+    .total-final td { border-top: 2px solid {{ $primary }}; border-bottom: none; padding-top: 8px; }
+    .total-final .label { font-size: 12px; font-weight: bold; color: {{ $text }}; }
+    .total-final .value { font-size: 14px; font-weight: bold; color: {{ $primary }}; text-align: right; }
 
     .guarantee-box { background: #F8F5F0; border: 1px solid #E5DDD2; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
     .guarantee-title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #D6B98C; margin-bottom: 8px; }
@@ -58,21 +83,21 @@
 
     .footer-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
     .footer-table td { vertical-align: top; }
-    .notes-title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #6B6B6B; margin-bottom: 4px; }
-    .notes-text { font-size: 9px; color: #6B6B6B; line-height: 1.6; }
+    .notes-title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: {{ $muted }}; margin-bottom: 4px; }
+    .notes-text { font-size: 9px; color: {{ $muted }}; line-height: 1.6; }
 
     /* FITUR BARU: "Riwayat Pelayanan" — menggantikan blok tanda tangan lama.
        Sesuai permintaan: tanpa garis/form ttd, cukup nama staf + waktu utk
        tiap tahap layanan (dibuat & dikembalikan), jadi jelas siapa
        menerima vs siapa mengembalikan walau orangnya beda. */
     .service-history { background: #F8F5F0; border: 1px solid #E5DDD2; border-radius: 8px; padding: 12px; }
-    .service-history-title { font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: #D6B98C; margin-bottom: 8px; }
+    .service-history-title { font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: {{ $primary }}; margin-bottom: 8px; }
     .service-step { padding-left: 14px; border-left: 2px solid #E5DDD2; padding-bottom: 10px; position: relative; }
     .service-step:last-child { padding-bottom: 0; }
-    .service-step-dot { position: absolute; left: -5px; top: 2px; width: 8px; height: 8px; border-radius: 50%; background: #D6B98C; }
-    .service-step-role { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: #6B6B6B; }
-    .service-step-name { font-size: 11px; font-weight: bold; color: #2B2B2B; margin-top: 1px; }
-    .service-step-time { font-size: 8px; color: #6B6B6B; margin-top: 1px; }
+    .service-step-dot { position: absolute; left: -5px; top: 2px; width: 8px; height: 8px; border-radius: 50%; background: {{ $primary }}; }
+    .service-step-role { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: {{ $muted }}; }
+    .service-step-name { font-size: 11px; font-weight: bold; color: {{ $text }}; margin-top: 1px; }
+    .service-step-time { font-size: 8px; color: {{ $muted }}; margin-top: 1px; }
 
     /* FITUR BARU (gaya "e-tiket" KAI Access): barcode/QR sekarang jadi
        elemen tersendiri yang besar & benar-benar di tengah halaman, dengan
@@ -83,15 +108,15 @@
         margin-bottom: 22px;
         padding-top: 20px;
         padding-bottom: 20px;
-        border-top: 2px dashed #D6B98C;
-        border-bottom: 2px dashed #D6B98C;
+        border-top: 2px dashed {{ $primary }};
+        border-bottom: 2px dashed {{ $primary }};
     }
     .ticket-stub-label {
         font-size: 8px;
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 2px;
-        color: #D6B98C;
+        color: {{ $primary }};
         margin-bottom: 10px;
         text-align: center;
     }
@@ -101,11 +126,11 @@
         font-weight: bold;
         font-family: 'Courier New', monospace;
         letter-spacing: 2px;
-        color: #2B2520;
+        color: {{ $heading }};
         margin-top: 10px;
         text-align: center;
     }
-    .ticket-stub-hint { font-size: 8px; color: #6B6B6B; margin-top: 3px; text-align: center; }
+    .ticket-stub-hint { font-size: 8px; color: {{ $muted }}; margin-top: 3px; text-align: center; }
 
     .watermark {
         position: absolute;
@@ -125,7 +150,7 @@
 <body>
 <div class="page">
 
-    @if($rental->payment_status === 'paid')
+    @if($invoiceSettings['invoice_show_watermark'] && $rental->payment_status === 'paid')
     <div class="watermark">LUNAS</div>
     @endif
 
@@ -133,13 +158,11 @@
     <table class="header-table">
         <tr>
             <td style="vertical-align: top;">
-                @if($rental->branch->logo)
-                    <img src="{{ public_path('storage/' . $rental->branch->logo) }}" height="50" style="margin-bottom: 6px; display: block;">
-                @elseif(file_exists(public_path('images/logo.png')))
-                    <img src="{{ public_path('images/logo.png') }}" height="50" style="margin-bottom: 6px; display: block;">
+                @if($pdfLogoPath)
+                    <img src="{{ $pdfLogoPath }}" height="50" style="margin-bottom: 6px; display: block;">
                 @endif
-                <div class="brand-name">{{ config('app.name', 'JasRental') }}</div>
-                <div class="brand-tagline">Premium Suit Rental</div>
+                <div class="brand-name">{{ $invoiceCompanyName }}</div>
+                <div class="brand-tagline">{{ $invoiceTagline }}</div>
                 <div class="brand-address">
                     {{ $rental->branch->name }}<br>
                     {{ $rental->branch->address }}<br>
@@ -312,7 +335,7 @@
          text-align:center pada tag gambar langsung di dalam sebuah div —
          dipakai <table> 1 kolom dengan align="center" bawaan HTML, cara
          paling reliable untuk benar-benar center di dompdf. --}}
-    @if($rental->qr_code)
+    @if($invoiceSettings['invoice_show_qr'] && $rental->qr_code)
     <div class="ticket-stub">
         <div class="ticket-stub-label">Tiket Verifikasi Transaksi</div>
         <table style="width: 100%; border-collapse: collapse;">
@@ -333,26 +356,19 @@
             <td style="width: 52%;">
                 <div class="notes-title">Syarat &amp; Ketentuan</div>
                 <div class="notes-text">
-                    1. Barang wajib dikembalikan sesuai tanggal jatuh tempo.<br>
-                    2. Keterlambatan pengembalian dikenakan denda 50% per hari.<br>
-                    3. Kerusakan / kehilangan menjadi tanggung jawab penyewa.<br>
-                    4. Jaminan dikembalikan setelah barang kembali dalam kondisi baik.
+                    @foreach($invoiceTerms as $term)
+                        {{ $term }}@if(!$loop->last)<br>@endif
+                    @endforeach
                 </div>
             </td>
             <td style="width: 4%;"></td>
             <td style="width: 44%;">
-                {{-- "Riwayat Pelayanan" — tanpa form/garis tanda tangan sama
-                     sekali (sesuai permintaan), cukup nama + waktu untuk
-                     tiap tahap. Kalau barang belum dikembalikan, cuma tahap
-                     "Dibuat" yang tampil. Kalau staf pembuat & staf
-                     pengembali sama, tetap ditampilkan sebagai 2 baris
-                     terpisah supaya riwayatnya konsisten & jelas urutannya. --}}
                 <div class="service-history">
                     <div class="service-history-title">Riwayat Pelayanan</div>
 
                     <div class="service-step">
                         <div class="service-step-dot"></div>
-                        <div class="service-step-role">Dibuat oleh</div>
+                        <div class="service-step-role">{{ $invoiceSettings['invoice_created_label'] }}</div>
                         <div class="service-step-name">{{ $rental->createdBy->name }}</div>
                         <div class="service-step-time">{{ $rental->created_at->format('d M Y, H:i') }} WIB</div>
                     </div>
@@ -360,7 +376,7 @@
                     @if($rental->returnedBy)
                     <div class="service-step" style="border-left-color: #D6B98C;">
                         <div class="service-step-dot" style="background: #15803D;"></div>
-                        <div class="service-step-role">Dikembalikan oleh</div>
+                        <div class="service-step-role">{{ $invoiceSettings['invoice_returned_label'] }}</div>
                         <div class="service-step-name">{{ $rental->returnedBy->name }}</div>
                         <div class="service-step-time">{{ $rental->returned_at?->format('d M Y, H:i') }} WIB</div>
                     </div>
@@ -373,8 +389,7 @@
     <!-- Bottom line -->
     <div style="margin-top: 20px; border-top: 1px dashed #D6B98C; padding-top: 10px; text-align: center;">
         <div style="font-size: 9px; color: #6B6B6B;">
-            Dokumen ini dicetak secara otomatis oleh sistem {{ config('app.name') }}
-            &nbsp;|&nbsp; {{ now()->format('d M Y H:i') }} WIB
+            {{ $invoiceFooter }}
         </div>
     </div>
 

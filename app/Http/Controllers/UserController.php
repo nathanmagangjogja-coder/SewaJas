@@ -86,6 +86,12 @@ public function store(Request $request)
         return view('users.edit', compact('user', 'branches', 'roles'));
     }
 
+    public function show(User $user)
+    {
+        $user->load('branch');
+        return view('users.show', compact('user'));
+    }
+
 public function update(Request $request, User $user)
 {
     $data = $request->validate([

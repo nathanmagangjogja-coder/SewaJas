@@ -44,6 +44,20 @@
         </div>
     </div>
 
+    {{-- FIX: peringatan akun ini belum dikaitkan ke cabang (tidak bisa login) --}}
+    @if($user->role !== 'super_admin' && !$user->branch)
+    <div class="card p-4 flex items-center gap-3" style="background:#FFF1F0;border:1px solid #FECACA">
+        <i data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0" style="color:#C0392B"></i>
+        <div>
+            <p class="text-sm font-semibold" style="color:#C0392B">Akun ini belum dikaitkan ke cabang manapun</p>
+            <p class="text-xs" style="color:#C0392B">
+                Akun dengan role {{ ucfirst(str_replace('_', ' ', $user->role ?? '-')) }} wajib memiliki cabang,
+                jika tidak akan otomatis ditolak (403) saat mencoba login. Klik <strong>Edit</strong> untuk melengkapi cabangnya.
+            </p>
+        </div>
+    </div>
+    @endif
+
     {{-- ── MAIN ─────────────────────────────────────────────── --}}
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -107,13 +121,18 @@
                                 <i data-lucide="globe" class="w-3 h-3 inline-block mr-1"></i>
                                 Semua Cabang
                             </span>
+                            @else
+                            <span class="badge text-xs" style="background:#FFF1F0;color:#C0392B;border:1px solid #FECACA">
+                                <i data-lucide="alert-triangle" class="w-3 h-3 inline-block mr-1"></i>
+                                Belum dikaitkan cabang
+                            </span>
                             @endif
                         </div>
                     </div>
                 </div>
             </div>
 
-            {{-- Aktivitas / Statistik --}}
+            {{-- Aktivitas / Statistik (opsional, kirim dari controller jika tersedia) --}}
             @if(isset($stats))
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div class="stat-card">
@@ -133,7 +152,7 @@
             </div>
             @endif
 
-            {{-- Riwayat Transaksi --}}
+            {{-- Riwayat Transaksi (opsional, kirim dari controller jika tersedia) --}}
             @if(isset($rentals) && $rentals->isNotEmpty())
             <div class="card overflow-hidden">
                 <div class="p-5 border-b flex items-center gap-2" style="border-color:var(--border)">
@@ -210,7 +229,7 @@
                             ['icon' => 'mail',      'label' => 'Email',   'value' => $user->email],
                             ['icon' => 'phone',     'label' => 'Telepon', 'value' => $user->phone ?? '—'],
                             ['icon' => 'shield',    'label' => 'Role',    'value' => ucfirst(str_replace('_', ' ', $user->role ?? '—'))],
-                            ['icon' => 'map-pin',   'label' => 'Cabang',  'value' => $user->branch?->name ?? ($user->role === 'super_admin' ? 'Semua Cabang' : '—')],
+                            ['icon' => 'map-pin',   'label' => 'Cabang',  'value' => $user->branch?->name ?? ($user->role === 'super_admin' ? 'Semua Cabang' : 'Belum dikaitkan')],
                         ];
                     @endphp
                     @foreach($details as $d)
@@ -274,6 +293,10 @@
                         <i data-lucide="trash-2" class="w-4 h-4"></i> Hapus Pengguna
                     </button>
                 </form>
+                @else
+                <p class="text-xs text-center" style="color:var(--text-soft)">
+                    Anda tidak dapat menonaktifkan atau menghapus akun sendiri.
+                </p>
                 @endif
             </div>
 

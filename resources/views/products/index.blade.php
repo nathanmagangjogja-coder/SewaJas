@@ -54,6 +54,16 @@
                 </option>
                 @endforeach
             </select>
+            @if(auth()->user()->isSuperAdmin())
+            <select name="branch" class="form-input sm:w-40">
+                <option value="">Semua Cabang</option>
+                @foreach($branches as $b)
+                <option value="{{ $b->id }}" {{ request('branch') == $b->id ? 'selected' : '' }}>
+                    {{ $b->name }}
+                </option>
+                @endforeach
+            </select>
+            @endif
             <select name="status" class="form-input sm:w-40">
                 <option value="">Semua Status</option>
                 <option value="available"   {{ request('status') === 'available'   ? 'selected' : '' }}>Tersedia</option>
@@ -69,7 +79,7 @@
             <button type="submit" class="btn-primary whitespace-nowrap">
                 <i data-lucide="filter" class="w-4 h-4"></i> Filter
             </button>
-            @if(request()->hasAny(['search','category','status','size']))
+            @if(request()->hasAny(['search','category','status','size','branch']))
             <a href="{{ route('products.index') }}" class="btn-secondary whitespace-nowrap">
                 <i data-lucide="x" class="w-4 h-4"></i> Reset
             </a>

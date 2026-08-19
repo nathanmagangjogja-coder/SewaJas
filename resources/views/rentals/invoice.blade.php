@@ -5,6 +5,23 @@
 @section('subtitle', $rental->invoice_number)
 
 @section('content')
+@php
+    $invoiceSettings = $invoiceSettings ?? \App\Models\Setting::invoice();
+    $invoiceCompanyName = $invoiceSettings['invoice_company_name'] ?: config('app.name');
+    $invoiceTagline = $invoiceSettings['invoice_tagline'] ?: 'Premium Suit Rental';
+    $invoiceLogoPath = null;
+
+    if ($invoiceSettings['invoice_show_logo']) {
+        if (!empty($invoiceSettings['invoice_logo_path'])) {
+            $invoiceLogoPath = asset('storage/' . $invoiceSettings['invoice_logo_path']);
+        } elseif ($invoiceSettings['invoice_use_branch_logo'] && $rental->branch?->logo) {
+            $invoiceLogoPath = asset('storage/' . $rental->branch->logo);
+        }
+    }
+
+    $invoiceTerms = trim($invoiceSettings['invoice_terms'] ?? '');
+    $invoiceFooter = $invoiceSettings['invoice_footer_text'] ?: ('Dokumen dicetak otomatis - ' . $invoiceCompanyName . ' - ' . now()->format('d M Y H:i') . ' WIB');
+@endphp
 <div class="space-y-4">
 
     <!-- Action Bar -->
@@ -34,13 +51,17 @@
     </div>
 
     <!-- Invoice Card -->
-    <div class="card p-8 max-w-4xl mx-auto print:shadow-none print:border-none" id="invoice-content">
+    <div class="card p-8 max-w-4xl mx-auto print:shadow-none print:border-none" id="invoice-content"
+         style="--inv-heading: {{ $invoiceSettings['invoice_heading_color'] }}; --inv-accent: {{ $invoiceSettings['invoice_primary_color'] }}; --inv-text: {{ $invoiceSettings['invoice_text_color'] }}; --inv-text-secondary: {{ $invoiceSettings['invoice_muted_color'] }}; --inv-border-strong: {{ $invoiceSettings['invoice_primary_color'] }};">
 
         <!-- Header -->
         <div class="flex justify-between items-start pb-6 border-b-2" style="border-color: var(--inv-border-strong)">
             <div>
-                <h1 class="font-playfair text-2xl font-bold" style="color: var(--inv-heading)">{{ config('app.name') }}</h1>
-                <p class="text-xs font-semibold tracking-widest mt-1" style="color: var(--inv-accent)">PREMIUM SUIT RENTAL</p>
+                @if($invoiceLogoPath)
+                    <img src="{{ $invoiceLogoPath }}" alt="Logo {{ $invoiceCompanyName }}" class="h-12 max-w-[180px] object-contain mb-2">
+                @endif
+                <h1 class="font-playfair text-2xl font-bold" style="color: var(--inv-heading)">{{ $invoiceCompanyName }}</h1>
+                <p class="text-xs font-semibold tracking-widest mt-1 uppercase" style="color: var(--inv-accent)">{{ $invoiceTagline }}</p>
                 <div class="mt-3 text-xs leading-6" style="color: var(--inv-text-secondary)">
                     <p class="font-semibold" style="color: var(--inv-text)">{{ $rental->branch->name }}</p>
                     <p>{{ $rental->branch->address }}</p>
@@ -268,7 +289,7 @@
                         <span>Syarat Penting</span>
                     </div>
                     <p>
-                        Kerusakan atau kehilangan menjadi tanggung jawab penyewa. Jaminan dikembalikan setelah semua barang kembali dalam kondisi baik.
+                        {!! nl2br(e($invoiceTerms ?: 'Kerusakan atau kehilangan menjadi tanggung jawab penyewa. Jaminan dikembalikan setelah semua barang kembali dalam kondisi baik.')) !!}
                     </p>
                 </div>
             </div>
@@ -291,7 +312,7 @@
              besar, benar-benar di tengah halaman (bukan lagi ikon kecil di
              samping rincian total), dengan garis putus-putus di atas
              seperti sobekan tiket, plus nomor invoice diulang di bawahnya. --}}
-        @if($rental->qr_code)
+        @if($invoiceSettings['invoice_show_qr'] && $rental->qr_code)
         <div class="mt-8 pt-6 text-center" style="border-top: 2px dashed var(--inv-accent)">
             <p class="text-[10px] font-bold uppercase tracking-[0.2em] mb-3" style="color: var(--inv-accent)">Tiket Verifikasi Transaksi</p>
             <img src="{{ asset('storage/' . $rental->qr_code) }}" alt="QR" class="w-36 h-36 sm:w-40 sm:h-40 mx-auto">
@@ -302,7 +323,7 @@
 
         <!-- Bottom -->
         <div class="mt-8 text-center border-t pt-4" style="border-color: var(--inv-border)">
-            <p class="text-xs" style="color: var(--inv-text-secondary)">Dokumen dicetak otomatis • {{ config('app.name') }} • {{ now()->format('d M Y H:i') }} WIB</p>
+            <p class="text-xs" style="color: var(--inv-text-secondary)">{{ $invoiceFooter }}</p>
         </div>
     </div>
 </div>

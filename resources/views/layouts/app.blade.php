@@ -962,6 +962,14 @@
         });
     </script>
 
+    <script>
+        // Opsi pembayaran (metode aktif, rekening bank, channel QRIS, foto QRIS)
+        // yang diatur Superadmin di menu Metode Pembayaran — dipakai bareng oleh
+        // form pembayaran di rentals/show & rentals/scan-result supaya tidak
+        // ada lagi data bank/QRIS yang di-hardcode di tiap halaman.
+        window.APP_PAYMENT_SETTINGS = {!! Illuminate\Support\Js::from(\App\Models\Setting::payment()) !!};
+    </script>
+
     @stack('scripts')
 
     <script>

@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Category;
 use App\Models\RentalPackage;
 use App\Models\Branch;
+use App\Models\Setting;
 use App\Services\RentalService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
@@ -789,7 +790,8 @@ class RentalController extends Controller
 
         $rental->load(['customer', 'items.product', 'guarantees', 'branch', 'createdBy', 'returnedBy', 'package']);
         $qrCode = base64_encode(QrCode::format('svg')->size(100)->generate(route('rentals.show', $rental->id)));
-        return view('rentals.invoice', compact('rental', 'qrCode'));
+        $invoiceSettings = Setting::invoice();
+        return view('rentals.invoice', compact('rental', 'qrCode', 'invoiceSettings'));
     }
 
     public function thermalPrint(Rental $rental)
@@ -806,7 +808,8 @@ class RentalController extends Controller
         $this->authorize('view', $rental);
 
         $rental->load(['customer', 'items.product', 'guarantees', 'branch', 'createdBy', 'returnedBy', 'package']);
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('rentals.pdf', compact('rental'));
+        $invoiceSettings = Setting::invoice();
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('rentals.pdf', compact('rental', 'invoiceSettings'));
         return $pdf->download("invoice-{$rental->invoice_number}.pdf");
     }
 
@@ -815,7 +818,8 @@ class RentalController extends Controller
         $rental = Rental::where('public_token', $token)
             ->with(['customer', 'items.product', 'guarantees', 'branch', 'createdBy', 'returnedBy'])
             ->firstOrFail();
-        return view('rentals.invoice-public', compact('rental'));
+        $invoiceSettings = Setting::invoice();
+        return view('rentals.invoice-public', compact('rental', 'invoiceSettings'));
     }
 
         public function invoicePdfPublic(string $token)
@@ -824,21 +828,9 @@ class RentalController extends Controller
             ->with(['customer', 'items.product', 'guarantees', 'branch', 'createdBy', 'returnedBy', 'package'])
             ->firstOrFail();
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('rentals.pdf', compact('rental'));
+        $invoiceSettings = Setting::invoice();
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('rentals.pdf', compact('rental', 'invoiceSettings'));
         return $pdf->stream("invoice-{$rental->invoice_number}.pdf");
-    }
-
-    public function qrisDemo(Rental $rental)
-    {
-        return view('rentals.qris-demo', compact('rental'));
-    }
-
-    public function qrisDemoQr(Rental $rental)
-    {
-        $url = route('rentals.qris-demo', $rental);
-        $svg = QrCode::format('svg')->size(220)->margin(1)->generate($url);
-
-        return response($svg, 200)->header('Content-Type', 'image/svg+xml');
     }
 
     // REFACTOR: buildWhatsAppMessage()/buildReminderMessage() dan logika

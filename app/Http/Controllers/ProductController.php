@@ -17,6 +17,9 @@ class ProductController extends Controller
     $user = Auth::user();
     $query = Product::with(['category', 'branch'])
         ->when(!$user->isSuperAdmin(), fn($q) => $q->where('branch_id', $user->branch_id))
+        // FIX: filter cabang di form sebelumnya tidak pernah diterapkan ke query
+        // (cuma tampil di dropdown tapi $request->branch tidak dipakai sama sekali).
+        ->when($user->isSuperAdmin() && $request->branch, fn($q) => $q->where('branch_id', $request->branch))
         ->when($request->category, fn($q) => $q->where('category_id', $request->category))
         ->when($request->status, fn($q) => $q->where('status', $request->status))
         ->when($request->size, fn($q) => $q->where('size', $request->size))
@@ -32,21 +35,33 @@ class ProductController extends Controller
 
     $products   = $query->paginate(16)->withQueryString();
     $categories = Category::where('is_active', true)->get();
+    // FIX: $branches sebelumnya tidak dikirim ke view, padahal dipakai
+    // dropdown filter "Cabang" untuk Superadmin → Undefined variable $branches.
+    $branches = $user->isSuperAdmin()
+        ? \App\Models\Branch::where('is_active', true)->orderBy('name')->get()
+        : collect();
 
-    return view('products.index', compact('products', 'categories'));
+    return view('products.index', compact('products', 'categories', 'branches'));
 }
 
     public function create()
     {
-       
         $categories = Category::where('is_active', true)->get();
-        return view('products.create', compact('categories'));
+        // FIX: $branches sebelumnya tidak dikirim ke view, padahal dipakai
+        // untuk pilih cabang tujuan produk baru → Undefined variable $branches.
+        $branches = Auth::user()->isSuperAdmin()
+            ? \App\Models\Branch::where('is_active', true)->orderBy('name')->get()
+            : collect();
+        return view('products.create', compact('categories', 'branches'));
     }
 
 public function store(Request $request)
 {
     // default set timezone to Asia/Jakarta
     date_default_timezone_set('Asia/Jakarta');
+
+    $user = Auth::user();
+
     $data = $request->validate([
         'category_id'   => 'required|exists:categories,id',
         'name'          => 'required|string|max:150',
@@ -61,26 +76,54 @@ public function store(Request $request)
         'status'        => 'required|in:available,maintenance,inactive',
         'notes'         => 'nullable|string',
         'image'         => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+        // Multi-cabang (checkbox "Cabang") — WAJIB pilih minimal 1 untuk
+        // Superadmin. Role lain tidak mengirim field ini sama sekali,
+        // otomatis dibuat di cabangnya sendiri.
+        'branch_ids'    => $user->isSuperAdmin() ? 'required|array|min:1' : 'nullable|array',
+        'branch_ids.*'  => 'exists:branches,id',
     ]);
 
-    $user     = Auth::user();
-    $branchId = $user->branch_id ?? 1;
+    // Tentukan cabang tujuan: Superadmin bisa centang lebih dari satu
+    // (produk yang sama dibuat di semua cabang tsb sekaligus). Role lain
+    // otomatis memakai cabangnya sendiri, seperti semula.
+    $branchIds = $user->isSuperAdmin()
+        ? collect($data['branch_ids'])->unique()->values()
+        : collect([$user->branch_id ?? 1]);
 
-    $data['branch_id']       = $branchId; // ✅ bukan $user->branch_id
-    $data['stock_available'] = $data['stock_total'];
-    $data['code']            = $this->generateCode($branchId);
-
+    $imagePath = null;
     if ($request->hasFile('image')) {
-        $data['photo'] = $request->file('image')->store('products', 'public');
+        $imagePath = $request->file('image')->store('products', 'public');
     }
 
-    unset($data['image']);
+    unset($data['image'], $data['branch_ids']);
 
-    $product = Product::create($data);
-    $this->generateQrCode($product);
+    // ── BUAT PRODUK DI SETIAP CABANG YANG DICENTANG ────────────────────────
+    // Semua field (nama, harga, deskripsi, foto, dll) sama persis; yang
+    // dibuat sendiri-sendiri per cabang hanyalah kode produk, QR code, dan
+    // stok (stok fisik tidak masuk akal dibagi lintas cabang).
+    $firstProduct  = null;
+    $createdCount  = 0;
 
-    return redirect()->route('products.show', $product)
-        ->with('success', 'Produk berhasil ditambahkan!');
+    foreach ($branchIds as $branchId) {
+        $payload = $data;
+        $payload['branch_id']       = $branchId;
+        $payload['stock_available'] = $data['stock_total'];
+        $payload['code']            = $this->generateCode($branchId);
+        $payload['photo']           = $imagePath;
+
+        $product = Product::create($payload);
+        $this->generateQrCode($product);
+
+        $firstProduct ??= $product;
+        $createdCount++;
+    }
+
+    $message = $createdCount > 1
+        ? "Produk berhasil ditambahkan ke {$createdCount} cabang sekaligus!"
+        : 'Produk berhasil ditambahkan!';
+
+    return redirect()->route('products.show', $firstProduct)
+        ->with('success', $message);
 }
 
     public function update(Request $request, Product $product)
@@ -100,6 +143,11 @@ public function store(Request $request)
             'status' => 'required|in:available,maintenance,inactive',
             'notes' => 'nullable|string',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+            // Multi-cabang (khusus Superadmin) — checkbox di menu "Cabang".
+            // Cabang produk ini sendiri SELALU ikut terkirim lewat hidden input
+            // di blade, jadi array minimal berisi 1 (cabang produk ini).
+            'branch_ids'   => 'nullable|array',
+            'branch_ids.*' => 'exists:branches,id',
         ]);
 
         if ($request->hasFile('image')) {
@@ -114,12 +162,42 @@ public function store(Request $request)
             unset($data['photo']);
         }
 
-        // Hapus key 'image' dari $data agar tidak masuk ke kolom DB
-        unset($data['image']);
+        // Cabang TAMBAHAN yang dicentang Superadmin (di luar cabang produk ini
+        // sendiri) — dipakai untuk MENGGANDAKAN produk, BUKAN memindahkan
+        // produk yang sedang diedit. Produk asal tetap di cabangnya semula.
+        $extraBranchIds = collect($data['branch_ids'] ?? [])
+            ->reject(fn ($id) => (int) $id === (int) $product->branch_id)
+            ->unique()
+            ->values();
+
+        // Hapus key yang bukan kolom tabel products sebelum update() produk asal.
+        unset($data['image'], $data['branch_ids']);
 
         $product->update($data);
 
-        return redirect()->route('products.show', $product)->with('success', 'Produk berhasil diperbarui!');
+        // ── GANDAKAN PRODUK KE SETIAP CABANG LAIN YANG DICENTANG ───────────
+        // Nama, harga, foto, kategori, dll disalin persis dari produk yang baru
+        // saja diupdate. Kode produk, QR code, dan stok dibuat baru per cabang
+        // (tidak masuk akal berbagi stok fisik lintas cabang).
+        $duplicatedCount = 0;
+        foreach ($extraBranchIds as $branchId) {
+            $clone = $product->replicate(['code', 'qr_code']);
+            $clone->branch_id       = $branchId;
+            $clone->code            = $this->generateCode($branchId);
+            $clone->stock_total     = $product->stock_total;
+            $clone->stock_available = $product->stock_total; // stok baru = penuh, belum ada yg disewa di cabang ini
+            $clone->save();
+
+            $this->generateQrCode($clone);
+            $duplicatedCount++;
+        }
+
+        $message = 'Produk berhasil diperbarui!';
+        if ($duplicatedCount > 0) {
+            $message .= " Produk yang sama juga otomatis dibuat di {$duplicatedCount} cabang lain.";
+        }
+
+        return redirect()->route('products.show', $product)->with('success', $message);
     }
     public function destroy($id)
     {
@@ -135,15 +213,31 @@ public function store(Request $request)
     public function show(Product $product)
     {
         // $this->authorize('view', $product);
-        $product->load(['category', 'branch', 'rentalItems' => fn($q) => $q->with('rental.customer')->latest()->limit(10)]);
-        return view('products.show', compact('product'));
+        $product->load(['category', 'branch']);
+
+        // FIX: sebelumnya cuma load relasi 'rentalItems' ke $product tapi TIDAK
+        // PERNAH mengirim variabel $rentals ke view — padahal blade-nya butuh
+        // $rentals (lihat @if(isset($rentals)) di products/show.blade.php),
+        // jadi section "Riwayat Rental" selalu tampil kosong walau produk ini
+        // sudah pernah disewa berkali-kali.
+        //
+        // Riwayat rental produk didapat lewat tabel rental_items (satu Rental
+        // bisa berisi banyak produk), bukan relasi langsung Product → Rental.
+        $rentals = \App\Models\Rental::with('customer')
+            ->whereHas('items', fn ($q) => $q->where('product_id', $product->id))
+            ->latest('rental_date')
+            ->paginate(10);
+
+        return view('products.show', compact('product', 'rentals'));
     }
 
     public function edit(Product $product)
     {
         $this->authorize('update', $product);
         $categories = Category::where('is_active', true)->get();
-        return view('products.edit', compact('product', 'categories'));
+        // Dipakai untuk checklist multi-cabang (lihat update() di bawah).
+        $branches = \App\Models\Branch::where('is_active', true)->orderBy('name')->get();
+        return view('products.edit', compact('product', 'categories', 'branches'));
     }
 
     public function regenerateQr(Product $product)

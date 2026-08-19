@@ -754,12 +754,14 @@
                                 <div>
                     <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-dark)">Metode Pembayaran</label>
                     <div class="grid grid-cols-3 gap-1.5">
+                        @php $paymentSettings = \App\Models\Setting::payment(); @endphp
                         @foreach([
                             'cash'     => ['Tunai',    'banknote'],
                             'transfer' => ['Transfer', 'building-2'],
                             'qris'     => ['QRIS',     'qr-code'],
                             'other' => ['Lainnya',  'credit-card']
                         ] as $val => [$label, $icon])
+                        @continue(!in_array($val, $paymentSettings['payment_methods_enabled']))
                         <label class="flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50"
                                style="border-color: var(--border)">
                             <input type="radio" name="method" value="{{ $val }}" x-model="paymentMethod"
@@ -779,6 +781,7 @@
                         Bank Tujuan <span class="text-red-400">*</span>
                     </label>
                     <select name="payment_channel" x-model="paymentChannel"
+                            @change="autofillBankAccount()"
                             :required="paymentMethod === 'transfer'"
                             class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
                         <option value="">Pilih bank...</option>
@@ -817,11 +820,18 @@
 
                                 <div x-show="paymentMethod === 'qris' && paymentChannel" x-cloak x-transition
                      class="flex flex-col items-center gap-2 p-3 rounded-xl" style="background: var(--bg-main)">
-                    <img src="{{ route('rentals.qris-demo.qr', $rental) }}" alt="QR QRIS"
-                         class="w-40 h-40 rounded-lg" style="background: white; padding: 8px; border: 1px solid var(--border)">
-                    <p class="text-[11px] text-center" style="color: var(--text-soft)">
-                        Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="paymentChannel"></span>
-                    </p>
+                    @if($paymentSettings['payment_qris_image_url'])
+                        <img src="{{ $paymentSettings['payment_qris_image_url'] }}" alt="QRIS"
+                             class="w-40 h-40 rounded-lg object-contain" style="background: white; padding: 8px; border: 1px solid var(--border)">
+                        <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                            Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="paymentChannel"></span>
+                        </p>
+                    @else
+                        <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                            Foto QRIS belum diatur. Superadmin bisa mengunggahnya di menu
+                            <strong>Metode Pembayaran</strong>.
+                        </p>
+                    @endif
                 </div>
 
                 {{-- Catatan umum (sebelumnya: No. Referensi) --}}
@@ -1077,6 +1087,7 @@
                                 'transfer' => ['Transfer', 'building-2'],
                                 'qris'     => ['QRIS',     'qr-code'],
                             ] as $val => [$label, $icon])
+                            @continue(!in_array($val, $paymentSettings['payment_methods_enabled']))
                             <label class="flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 cursor-pointer transition-all has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50"
                                    style="border-color: var(--border)">
                                 <input type="radio" name="method" value="{{ $val }}" x-model="lateFeeMethod"
@@ -1096,6 +1107,7 @@
                             Bank Tujuan <span class="text-red-400">*</span>
                         </label>
                         <select name="payment_channel" x-model="lateFeeChannel"
+                                @change="autofillLateFeeBankAccount()"
                                 :required="lateFeeMethod === 'transfer'"
                                 class="form-input w-full text-sm" style="padding-top: 0.5rem; padding-bottom: 0.5rem;">
                             <option value="">Pilih bank...</option>
@@ -1131,11 +1143,18 @@
 
                     <div x-show="lateFeeMethod === 'qris' && lateFeeChannel" x-cloak x-transition
                          class="flex flex-col items-center gap-2 p-3 rounded-xl" style="background: var(--bg-main)">
-                        <img src="{{ route('rentals.qris-demo.qr', $rental) }}" alt="QR QRIS"
-                             class="w-40 h-40 rounded-lg" style="background: white; padding: 8px; border: 1px solid var(--border)">
-                        <p class="text-[11px] text-center" style="color: var(--text-soft)">
-                            Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="lateFeeChannel"></span>
-                        </p>
+                        @if($paymentSettings['payment_qris_image_url'])
+                            <img src="{{ $paymentSettings['payment_qris_image_url'] }}" alt="QRIS"
+                                 class="w-40 h-40 rounded-lg object-contain" style="background: white; padding: 8px; border: 1px solid var(--border)">
+                            <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                                Minta customer scan QR ini dengan kamera HP / aplikasi <span x-text="lateFeeChannel"></span>
+                            </p>
+                        @else
+                            <p class="text-[11px] text-center" style="color: var(--text-soft)">
+                                Foto QRIS belum diatur. Superadmin bisa mengunggahnya di menu
+                                <strong>Metode Pembayaran</strong>.
+                            </p>
+                        @endif
                     </div>
 
                     <div>
@@ -1504,9 +1523,26 @@ function rentalDetail() {
         paymentMethod: 'cash',
         paymentChannel: '',      // nama bank (transfer) ATAU bank/e-wallet (qris)
         paymentAccountNumber: '',
-        bankOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'CIMB Niaga'],
-        qrisOptions: ['BCA', 'Mandiri', 'BNI', 'BRI', 'BSI', 'SeaBank', 'GoPay', 'OVO', 'Dana'],
-        otherOptions: ['Lain-lain'], 
+        // Sumber: pengaturan Superadmin (menu Metode Pembayaran) — lihat
+        // window.APP_PAYMENT_SETTINGS yang di-inject di layouts/app.blade.php.
+        banks: window.APP_PAYMENT_SETTINGS?.payment_banks || [],
+        bankOptions: (window.APP_PAYMENT_SETTINGS?.payment_banks || []).map(b => b.name).filter(Boolean),
+        qrisOptions: [
+            ...(window.APP_PAYMENT_SETTINGS?.payment_banks || []).map(b => b.name).filter(Boolean),
+            ...(window.APP_PAYMENT_SETTINGS?.payment_qris_channels || []),
+        ],
+        otherOptions: ['Lain-lain'],
+        // Isi otomatis nomor rekening tujuan begitu kasir memilih bank
+        // (nomor rekening diatur Superadmin di menu Metode Pembayaran).
+        // Kasir tetap bisa mengubahnya manual jika perlu.
+        autofillBankAccount() {
+            const bank = this.banks.find(b => b.name === this.paymentChannel);
+            this.paymentAccountNumber = bank?.account_number || '';
+        },
+        autofillLateFeeBankAccount() {
+            const bank = this.banks.find(b => b.name === this.lateFeeChannel);
+            this.lateFeeAccountNumber = bank?.account_number || '';
+        },
         resetPaymentMethod() {
             this.paymentChannel = '';
             this.paymentAccountNumber = '';

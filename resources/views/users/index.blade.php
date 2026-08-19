@@ -109,7 +109,7 @@
 
                     {{-- Pengguna --}}
                     <td>
-                        <div class="flex items-center gap-3">
+                        <a href="{{ route('users.show', $user) }}" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
                             <img src="{{ $user->avatar_url }}" class="w-9 h-9 rounded-xl object-cover">
                             <div>
                                 <p class="font-semibold text-sm" style="color:var(--text-dark)">
@@ -120,7 +120,7 @@
                                 </p>
                                 <p class="text-xs" style="color:var(--text-soft)">{{ $user->email }}</p>
                             </div>
-                        </div>
+                        </a>
                     </td>
 
                     {{-- Role ← ganti: pakai $user->role (kolom langsung) --}}
@@ -168,6 +168,11 @@
                     {{-- Aksi --}}
                     <td>
                         <div class="flex items-center justify-center gap-1">
+                            <a href="{{ route('users.show', $user) }}"
+                               class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Lihat Detail"
+                               style="color:var(--text-soft)">
+                                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                            </a>
                             <a href="{{ route('users.edit', $user) }}"
                                class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Edit"
                                style="color:var(--text-soft)">

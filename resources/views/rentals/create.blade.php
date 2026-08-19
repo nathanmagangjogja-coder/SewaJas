@@ -5,6 +5,25 @@
 @section('subtitle', 'Buat transaksi penyewaan jas baru')
 
 @section('content')
+@php
+    // Dipindah ke luar blok @if/@else di bawah (BUKAN di dalam @else saja) —
+    // supaya $productsData selalu terdefinisi. Sebelumnya variabel ini cuma
+    // dihitung di dalam @else (baris "sudah pilih cabang"), padahal dipakai
+    // lagi di <script> @push('scripts') di bagian paling bawah file yang
+    // TIDAK ikut terbungkus @if/@endif — jadi selalu ikut jalan walau
+    // Superadmin belum pilih cabang. Akibatnya: "Undefined variable
+    // $productsData" begitu Superadmin buka halaman ini sebelum memilih
+    // cabang. $products sendiri selalu dikirim controller (collection
+    // kosong kalau belum pilih cabang), jadi aman dihitung di sini.
+    $productsData = $products->map(fn($p) => [
+        'id' => $p->id,
+        'name' => $p->name,
+        'size' => $p->size,
+        'color' => $p->color,
+        'price' => $p->rental_price,
+        'stock' => $p->stock_available,
+    ])->values();
+@endphp
 @if(!$selectedBranchId)
 {{-- FIX BUG BESAR: super_admin WAJIB pilih cabang dulu sebelum bisa buat
      transaksi. Sebelumnya halaman ini langsung tampil (tapi selalu KOSONG
@@ -46,16 +65,6 @@
     </div>
 </div>
 @else
-@php
-    $productsData = $products->map(fn($p) => [
-        'id' => $p->id,
-        'name' => $p->name,
-        'size' => $p->size,
-        'color' => $p->color,
-        'price' => $p->rental_price,
-        'stock' => $p->stock_available,
-    ])->values();
-@endphp
 
 <div x-data="rentalForm()" class="space-y-4">
 
@@ -1034,18 +1043,12 @@ function rentalForm() {
                 this.idPhotoProcessing = false;
             }
         },
-
-        // Sinkronkan blob hasil kompresi/rotasi ke <input type=file name="id_photo">
-        // supaya ikut terkirim saat form di-submit.
         syncIdPhotoInput(blob) {
             const file = new File([blob], 'ktp.jpg', { type: 'image/jpeg' });
             const dt = new DataTransfer();
             dt.items.add(file);
             this.$refs.rentalIdPhotoInput.files = dt.files;
         },
-
-        // Kompres gambar di browser: resize ke maxDim, turunkan quality bertahap
-        // sampai di bawah targetKB (biar tidak ketolak limit 2MB di server).
         compressImageFile(file, maxDim, targetKB) {
             return new Promise((resolve, reject) => {
                 const img = new Image();

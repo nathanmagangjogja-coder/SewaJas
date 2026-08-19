@@ -296,6 +296,24 @@
             <span x-show="!sidebarOpen && !sidebarMobileOpen" class="sidebar-tooltip">Paket Sewa</span>
         </a>
 
+        <a href="{{ route('invoice-settings.edit') }}"
+           class="sidebar-item group relative flex items-center gap-3 px-3 py-2.5 text-sm
+                  {{ request()->routeIs('invoice-settings.*') ? 'active active-green' : '' }}"
+           @click="sidebarMobileOpen = false">
+            <i data-lucide="file-cog" class="w-4 h-4 flex-shrink-0 nav-icon-green"></i>
+            <span x-show="sidebarOpen || sidebarMobileOpen" class="whitespace-nowrap">Custom Invoice</span>
+            <span x-show="!sidebarOpen && !sidebarMobileOpen" class="sidebar-tooltip">Custom Invoice</span>
+        </a>
+
+        <a href="{{ route('payment-settings.edit') }}"
+           class="sidebar-item group relative flex items-center gap-3 px-3 py-2.5 text-sm
+                  {{ request()->routeIs('payment-settings.*') ? 'active active-green' : '' }}"
+           @click="sidebarMobileOpen = false">
+            <i data-lucide="wallet" class="w-4 h-4 flex-shrink-0 nav-icon-green"></i>
+            <span x-show="sidebarOpen || sidebarMobileOpen" class="whitespace-nowrap">Metode Pembayaran</span>
+            <span x-show="!sidebarOpen && !sidebarMobileOpen" class="sidebar-tooltip">Metode Pembayaran</span>
+        </a>
+
         <a href="{{ route('audit.index') }}"
            class="sidebar-item group relative flex items-center gap-3 px-3 py-2.5 text-sm
                   {{ request()->routeIs('audit.*') ? 'active active-ameth' : '' }}"

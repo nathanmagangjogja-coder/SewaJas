@@ -214,6 +214,66 @@
                     @error('image')<p class="text-xs text-red-500">{{ $message }}</p>@enderror
                 </div>
 
+                {{-- Cabang --}}
+                <div class="card p-6 space-y-4">
+                    <div class="flex items-center gap-2 pb-3 border-b" style="border-color:var(--border)">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:var(--secondary)">
+                            <i data-lucide="map-pin" class="w-3.5 h-3.5" style="color:var(--primary)"></i>
+                        </div>
+                        <h2 class="font-semibold text-sm" style="color:var(--text-dark)">Cabang</h2>
+                    </div>
+
+                    @if(auth()->user()->isSuperAdmin())
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color:var(--text-dark)">
+                            Cabang <span class="text-red-500">*</span>
+                        </label>
+                        <p class="text-xs mb-3" style="color:var(--text-soft)">
+                            Produk ini tetap tersimpan di cabang aslinya. Centang cabang lain untuk
+                            langsung membuat <strong>produk baru yang sama persis</strong>
+                            (nama, harga, foto, kategori, dll) di cabang tersebut — kode produk & QR
+                            tetap dibuat sendiri-sendiri untuk tiap cabang.
+                        </p>
+
+                        <div class="space-y-2 max-h-64 overflow-y-auto pr-1" id="branch-checklist">
+                            @foreach($branches as $b)
+                                @php $isOwnBranch = (int) $b->id === (int) $product->branch_id; @endphp
+                                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors
+                                              {{ $isOwnBranch ? 'opacity-70' : 'cursor-pointer hover:bg-gray-50' }}"
+                                       style="border-color:var(--border)">
+                                    <input type="checkbox"
+                                           name="branch_ids[]"
+                                           value="{{ $b->id }}"
+                                           class="w-4 h-4 rounded branch-checkbox"
+                                           {{ $isOwnBranch ? 'checked disabled' : '' }}
+                                           {{ in_array($b->id, old('branch_ids', [])) ? 'checked' : '' }}>
+                                    @if($isOwnBranch)
+                                        {{-- Checkbox yang disabled tidak ikut ter-submit browser,
+                                             jadi cabang produk ini sendiri dikirim lewat hidden input
+                                             supaya tetap konsisten walau tidak bisa "dilepas". --}}
+                                        <input type="hidden" name="branch_ids[]" value="{{ $b->id }}">
+                                    @endif
+                                    <span class="text-sm" style="color:var(--text-dark)">
+                                        {{ $b->name }}
+                                        @if($isOwnBranch)
+                                            <span class="text-xs" style="color:var(--text-soft)">(cabang produk ini)</span>
+                                        @endif
+                                    </span>
+                                </label>
+                            @endforeach
+                        </div>
+                        <p id="duplicate-count-note" class="text-xs font-medium hidden" style="color:var(--primary)"></p>
+                        @error('branch_ids')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+                    </div>
+                    @else
+                    <div class="rounded-xl p-3 text-sm flex items-center gap-2" style="background:var(--secondary);color:var(--text-dark)">
+                        <i data-lucide="store" class="w-4 h-4 flex-shrink-0" style="color:var(--primary)"></i>
+                        {{ $product->branch->name ?? '—' }}
+                    </div>
+                    <p class="text-xs" style="color:var(--text-soft)">Hanya Super Admin yang bisa menggandakan produk ke cabang lain.</p>
+                    @endif
+                </div>
+
                 {{-- Status --}}
                 <div class="card p-6 space-y-4">
                     <div class="flex items-center gap-2 pb-3 border-b" style="border-color:var(--border)">
@@ -284,6 +344,23 @@
 @push('scripts')
 <script>
     lucide.createIcons();
+
+    // ── Live counter: jumlah cabang lain yang akan digandakan ──────────────
+    const branchCheckboxes = document.querySelectorAll('.branch-checkbox:not(:disabled)');
+    const dupNote = document.getElementById('duplicate-count-note');
+
+    function updateDuplicateNote() {
+        if (!dupNote) return;
+        const checked = document.querySelectorAll('.branch-checkbox:not(:disabled):checked').length;
+        if (checked > 0) {
+            dupNote.textContent = `Produk yang sama akan otomatis dibuat di ${checked} cabang lain saat disimpan.`;
+            dupNote.classList.remove('hidden');
+        } else {
+            dupNote.classList.add('hidden');
+        }
+    }
+    branchCheckboxes.forEach(cb => cb.addEventListener('change', updateDuplicateNote));
+    updateDuplicateNote();
 
     const input    = document.getElementById('image-input');
     const prevImg  = document.getElementById('preview-img');

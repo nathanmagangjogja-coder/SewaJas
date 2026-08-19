@@ -229,24 +229,18 @@
                                                     {{ $rental->customer->phone ?? '' }}</p>
                                             </td>
                                             <td class="text-center text-sm" style="color:var(--text-soft)">
-                                                {{ \Carbon\Carbon::parse($rental->start_date)->format('d M Y') }}
+                                                {{ $rental->rental_date?->format('d M Y') ?? '-' }}
                                             </td>
                                             <td class="text-center text-sm" style="color:var(--text-soft)">
-                                                {{ \Carbon\Carbon::parse($rental->end_date)->format('d M Y') }}
+                                                {{ ($rental->actual_return_date ?? $rental->return_due_date)?->format('d M Y') ?? '-' }}
                                             </td>
                                             <td class="text-right text-sm font-semibold" style="color:var(--text-dark)">
-                                                Rp {{ number_format($rental->total_price, 0, ',', '.') }}
+                                                Rp {{ number_format($rental->total_amount, 0, ',', '.') }}
                                             </td>
                                             <td class="text-center">
-                                                @if ($rental->status === 'active')
-                                                    <span class="badge badge-blue">Aktif</span>
-                                                @elseif($rental->status === 'returned')
-                                                    <span class="badge badge-green">Dikembalikan</span>
-                                                @elseif($rental->status === 'overdue')
-                                                    <span class="badge badge-red">Terlambat</span>
-                                                @else
-                                                    <span class="badge badge-gray">{{ $rental->status }}</span>
-                                                @endif
+                                                <span class="badge badge-{{ $rental->status_badge_color }}">
+                                                    {{ $rental->status_label }}
+                                                </span>
                                             </td>
                                         </tr>
                                     @endforeach

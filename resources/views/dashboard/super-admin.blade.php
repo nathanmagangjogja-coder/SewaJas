@@ -218,6 +218,7 @@
                     @endforeach
                 </div>
             </div>
+
         </div>
 
         <!-- Status Chart & Active Customers -->
@@ -342,7 +343,6 @@
                     </table>
                 </div>
             </div>
-
         </div>
 
         <!-- Top Branches -->
