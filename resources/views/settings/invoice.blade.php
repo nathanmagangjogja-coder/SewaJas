@@ -108,52 +108,7 @@
                     </label>
                 </div>
             </div>
-
-            <div class="card p-5 space-y-4">
-                <div class="flex items-center gap-2">
-                    <i data-lucide="palette" class="w-4 h-4" style="color:var(--primary)"></i>
-                    <h2 class="font-semibold text-sm" style="color:var(--text-dark)">Tema & Warna</h2>
-                </div>
-
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    @foreach($themes as $key => $theme)
-                        <label class="cursor-pointer">
-                            <input type="radio" name="theme" value="{{ $key }}" class="sr-only peer"
-                                   x-model="theme" @change="applyTheme('{{ $key }}')"
-                                   {{ old('theme', $s['invoice_theme']) === $key ? 'checked' : '' }}>
-                            <div class="rounded-lg border p-3 transition peer-checked:ring-2"
-                                 style="border-color:var(--border); --tw-ring-color: {{ $theme['primary'] }}">
-                                <div class="flex gap-1 mb-2">
-                                    <span class="w-5 h-5 rounded" style="background:{{ $theme['primary'] }}"></span>
-                                    <span class="w-5 h-5 rounded" style="background:{{ $theme['heading'] }}"></span>
-                                    <span class="w-5 h-5 rounded" style="background:{{ $theme['muted'] }}"></span>
-                                </div>
-                                <p class="text-sm font-semibold" style="color:var(--text-dark)">{{ $theme['name'] }}</p>
-                            </div>
-                        </label>
-                    @endforeach
-                </div>
-
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-soft)">Aksen</label>
-                        <input type="color" name="primary_color" x-model="primary" class="h-10 w-full rounded-lg border p-1" style="border-color:var(--border)">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-soft)">Judul</label>
-                        <input type="color" name="heading_color" x-model="heading" class="h-10 w-full rounded-lg border p-1" style="border-color:var(--border)">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-soft)">Teks</label>
-                        <input type="color" name="text_color" x-model="text" class="h-10 w-full rounded-lg border p-1" style="border-color:var(--border)">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-soft)">Teks lembut</label>
-                        <input type="color" name="muted_color" x-model="muted" class="h-10 w-full rounded-lg border p-1" style="border-color:var(--border)">
-                    </div>
-                </div>
-            </div>
-
+            
             <div class="card p-5 space-y-4">
                 <div class="flex items-center gap-2">
                     <i data-lucide="text" class="w-4 h-4" style="color:var(--primary)"></i>

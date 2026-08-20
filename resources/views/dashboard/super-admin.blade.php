@@ -385,6 +385,147 @@
                     </tbody>
                 </table>
             </div>
+        <!-- Performa Sales per Cabang -->
+        <div class="card p-6" x-data="{ openBranch: null }">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="font-playfair font-semibold text-base" style="color: var(--text-dark)">Performa Sales per Cabang</h3>
+                    <p class="text-xs mt-0.5" style="color: var(--text-soft)">Jumlah customer yang dilayani tiap sales, dikelompokkan per cabang</p>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                @forelse ($stats['sales_performance'] as $bi => $branchData)
+                    <div class="rounded-lg border overflow-hidden" style="border-color:var(--border)">
+                        <button type="button" @click="openBranch = openBranch === {{ $bi }} ? null : {{ $bi }}"
+                                class="w-full flex items-center justify-between p-3 text-left"
+                                style="background:var(--bg-main)">
+                            <div class="flex items-center gap-3">
+                                <span class="badge badge-gold text-xs">{{ $branchData['branch_code'] }}</span>
+                                <span class="text-sm font-semibold" style="color:var(--text-dark)">{{ $branchData['branch_name'] }}</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs" style="color:var(--text-soft)">
+                                    {{ $branchData['sales']->count() }} sales ·
+                                    {{ number_format($branchData['sales']->sum('orders_received')) }} pesanan diterima ·
+                                    {{ number_format($branchData['sales']->sum('products_given_total')) }} produk diserahkan ·
+                                    {{ number_format($branchData['sales']->sum('returns_processed')) }} pengembalian
+                                </span>
+                                <i data-lucide="chevron-down" class="w-4 h-4 transition-transform"
+                                   :style="openBranch === {{ $bi }} ? 'transform:rotate(180deg)' : ''"></i>
+                            </div>
+                        </button>
+
+                        <div x-show="openBranch === {{ $bi }}" x-transition class="border-t p-3 space-y-2" style="border-color:var(--border)">
+                            @forelse ($branchData['sales'] as $si => $sales)
+                                <div class="rounded-lg p-3" style="background:var(--secondary)"
+                                     x-data="{ showReceived: false, showGiven: false, showReturned: false }">
+                                    <p class="text-sm font-medium mb-2" style="color:var(--text-dark)">{{ $sales['sales_name'] }}</p>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        {{-- Kategori 1: Menerima Pesanan --}}
+                                        <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="flex items-center gap-1.5">
+                                                    <i data-lucide="inbox" class="w-3.5 h-3.5" style="color:var(--primary)"></i>
+                                                    <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-soft)">Menerima Pesanan</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-end justify-between mt-1.5">
+                                                <div>
+                                                    <p class="text-2xl font-bold leading-none" style="color:var(--text-dark)">{{ number_format($sales['orders_received']) }}
+                                                        <span class="text-xs font-normal" style="color:var(--text-soft)">transaksi</span></p>
+                                                    <p class="text-[11px] mt-1" style="color:var(--text-soft)">{{ number_format($sales['customers_received_count']) }} customer unik</p>
+                                                </div>
+                                                <button type="button" @click="showReceived = !showReceived"
+                                                        class="text-[11px] font-medium" style="color:var(--primary)">
+                                                    <span x-text="showReceived ? 'Tutup' : 'Lihat'"></span>
+                                                </button>
+                                            </div>
+                                            <div x-show="showReceived" x-transition class="mt-2 flex flex-wrap gap-1.5">
+                                                @forelse ($sales['customers_received'] as $cname)
+                                                    <span class="text-[11px] px-2 py-1 rounded-full" style="background:var(--bg-main); color:var(--text-dark); border:1px solid var(--border)">
+                                                        {{ $cname }}
+                                                    </span>
+                                                @empty
+                                                    <span class="text-xs" style="color:var(--text-soft)">Belum ada customer</span>
+                                                @endforelse
+                                            </div>
+                                        </div>
+
+                                        {{-- Kategori 2: Memberikan Produk --}}
+                                        <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="flex items-center gap-1.5">
+                                                    <i data-lucide="package-check" class="w-3.5 h-3.5" style="color:var(--color-emerald, #10B981)"></i>
+                                                    <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-soft)">Memberikan Produk</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-end justify-between mt-1.5">
+                                                <div>
+                                                    <p class="text-2xl font-bold leading-none" style="color:var(--text-dark)">{{ number_format($sales['products_given_total']) }}
+                                                        <span class="text-xs font-normal" style="color:var(--text-soft)">kali serah</span></p>
+                                                    <p class="text-[11px] mt-1" style="color:var(--text-soft)">{{ number_format($sales['customers_given_count']) }} customer unik</p>
+                                                </div>
+                                                <button type="button" @click="showGiven = !showGiven"
+                                                        class="text-[11px] font-medium" style="color:var(--primary)">
+                                                    <span x-text="showGiven ? 'Tutup' : 'Lihat'"></span>
+                                                </button>
+                                            </div>
+                                            <div x-show="showGiven" x-transition class="mt-2 flex flex-wrap gap-1.5">
+                                                @forelse ($sales['customers_given'] as $cname)
+                                                    <span class="text-[11px] px-2 py-1 rounded-full" style="background:var(--bg-main); color:var(--text-dark); border:1px solid var(--border)">
+                                                        {{ $cname }}
+                                                    </span>
+                                                @empty
+                                                    <span class="text-xs" style="color:var(--text-soft)">Belum ada customer</span>
+                                                @endforelse
+                                            </div>
+                                        </div>
+
+                                        {{-- Kategori 3: Menerima Pengembalian --}}
+                                        <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="flex items-center gap-1.5">
+                                                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5" style="color:var(--color-amber, #F59E0B)"></i>
+                                                    <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-soft)">Menerima Pengembalian</span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-end justify-between mt-1.5">
+                                                <div>
+                                                    <p class="text-2xl font-bold leading-none" style="color:var(--text-dark)">{{ number_format($sales['returns_processed']) }}
+                                                        <span class="text-xs font-normal" style="color:var(--text-soft)">pengembalian</span></p>
+                                                    <p class="text-[11px] mt-1" style="color:var(--text-soft)">{{ number_format($sales['customers_returned_count']) }} customer unik</p>
+                                                </div>
+                                                <button type="button" @click="showReturned = !showReturned"
+                                                        class="text-[11px] font-medium" style="color:var(--primary)">
+                                                    <span x-text="showReturned ? 'Tutup' : 'Lihat'"></span>
+                                                </button>
+                                            </div>
+                                            <div x-show="showReturned" x-transition class="mt-2 flex flex-wrap gap-1.5">
+                                                @forelse ($sales['customers_returned'] as $cname)
+                                                    <span class="text-[11px] px-2 py-1 rounded-full" style="background:var(--bg-main); color:var(--text-dark); border:1px solid var(--border)">
+                                                        {{ $cname }}
+                                                    </span>
+                                                @empty
+                                                    <span class="text-xs" style="color:var(--text-soft)">Belum ada customer</span>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @empty
+                                <p class="text-xs text-center py-2" style="color:var(--text-soft)">Belum ada sales yang memproses pesanan di cabang ini</p>
+                            @endforelse
+                        </div>
+                    </div>
+                @empty
+                    <div class="text-center py-6" style="color: var(--text-soft)">
+                        <i data-lucide="users" class="w-8 h-8 mx-auto mb-2 opacity-30"></i>
+                        <p class="text-sm">Belum ada data performa sales</p>
+                    </div>
+                @endforelse
+            </div>
         </div>
     </div>
 @endsection
@@ -531,6 +672,6 @@
             }
         }).render();
 
-        lucide.createIcons(); // ✅ Pindah ke PALING BAWAH agar semua icon ter-render
+        lucide.createIcons(); 
     </script>
 @endpush

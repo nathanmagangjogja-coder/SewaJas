@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\DashboardService;
+use App\Models\Rental;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,11 @@ class DashboardController extends Controller
         $stats['piutang_count'] = DB::table('rentals')
             ->where('payment_status', '!=', 'paid')
             ->count();
+
+        // Performa sales: cabang -> sales -> skor (jumlah customer unik yang
+        // dilayani) + daftar nama customer, untuk section "Performa Sales
+        // per Cabang" di dashboard.
+        $stats['sales_performance'] = $this->getSalesPerformance();
 
         // Build chartData (monthly last 6 months) and sparklines placeholders
         $chartData = ['monthly' => ['labels' => [], 'revenue' => [], 'count' => []], 'weekly' => [], 'daily' => []];
@@ -116,6 +122,124 @@ class DashboardController extends Controller
             'pendapatan' => [0,0,0,0,0,0,0],
         ];
         return view('dashboard.sales', compact('stats','chartData','sparklines'));
+    }
+
+    // Performa sales dikelompokkan per cabang, dipecah jadi 3 kategori aksi:
+    //   1. "Menerima Pesanan"      -> dari rentals.created_by (staf yang membuat transaksi)
+    //   2. "Memberikan Produk"     -> dari payments.received_by (staf yang memproses
+    //      pembayaran/menyerahkan barang — lihat relasi payments.receivedBy yang
+    //      sudah dipakai di RentalController@show). SESUAIKAN nama kolom di query
+    //      payments di bawah kalau ternyata field di tabel `payments` bukan
+    //      `received_by`.
+    //   3. "Menerima Pengembalian" -> dari rentals.returned_by (staf yang MEMPROSES
+    //      PENGEMBALIAN barang — lihat relasi Rental::returnedBy(), diisi otomatis
+    //      di RentalService::finalizeReturn()).
+    private function getSalesPerformance()
+    {
+        $rentals = Rental::query()
+            ->whereHas('customer')
+            ->where(fn($q) => $q->whereNotNull('created_by')->orWhereNotNull('returned_by'))
+            ->with(['createdBy:id,name', 'returnedBy:id,name', 'branch:id,name,code', 'customer:id,name'])
+            ->get(['id', 'branch_id', 'created_by', 'returned_by', 'customer_id']);
+
+        $payments = \App\Models\Payment::query()
+            ->whereNotNull('received_by')
+            ->whereHas('rental.customer')
+            ->with(['receivedBy:id,name', 'rental:id,branch_id,customer_id', 'rental.customer:id,name'])
+            ->get(['id', 'rental_id', 'received_by']);
+
+        // $data[branch_id] = ['branch' => Branch|null, 'users' => [user_id => [...]]]
+        $data = [];
+
+        // ── Kategori 1: Menerima Pesanan ──────────────────────────────────
+        foreach ($rentals as $rental) {
+            $branchId = $rental->branch_id;
+            $userId   = $rental->created_by;
+            if (!$branchId || !$userId) continue;
+
+            $data[$branchId]['branch'] ??= $rental->branch;
+            $data[$branchId]['users'][$userId]['name'] ??= $rental->createdBy->name ?? 'Tidak diketahui';
+            $data[$branchId]['users'][$userId]['orders_received'] =
+                ($data[$branchId]['users'][$userId]['orders_received'] ?? 0) + 1;
+
+            if ($rental->customer) {
+                $data[$branchId]['users'][$userId]['customers_received'][$rental->customer->id] = $rental->customer->name;
+            }
+        }
+
+        // ── Kategori 3: Menerima Pengembalian ─────────────────────────────
+        foreach ($rentals as $rental) {
+            $branchId = $rental->branch_id;
+            $userId   = $rental->returned_by;
+            if (!$branchId || !$userId) continue;
+
+            $data[$branchId]['branch'] ??= $rental->branch;
+            $data[$branchId]['users'][$userId]['name'] ??= $rental->returnedBy->name ?? 'Tidak diketahui';
+            $data[$branchId]['users'][$userId]['returns_processed'] =
+                ($data[$branchId]['users'][$userId]['returns_processed'] ?? 0) + 1;
+
+            if ($rental->customer) {
+                $data[$branchId]['users'][$userId]['customers_returned'][$rental->customer->id] = $rental->customer->name;
+            }
+        }
+
+        // ── Kategori 2: Memberikan Produk ─────────────────────────────────
+        foreach ($payments as $payment) {
+            $rental = $payment->rental;
+            if (!$rental || !$rental->branch_id) continue;
+
+            $branchId = $rental->branch_id;
+            $userId   = $payment->received_by;
+            if (!$userId) continue;
+
+            $data[$branchId]['branch'] ??= $rental->branch;
+            $data[$branchId]['users'][$userId]['name'] ??= $payment->receivedBy->name ?? 'Tidak diketahui';
+            $data[$branchId]['users'][$userId]['products_given_total'] =
+                ($data[$branchId]['users'][$userId]['products_given_total'] ?? 0) + 1;
+
+            if ($rental->customer_id) {
+                $data[$branchId]['users'][$userId]['customers_given'][$rental->customer_id] =
+                    $rental->customer->name ?? '-';
+            }
+        }
+
+        return collect($data)
+            ->map(function ($branchData) {
+                $branch = $branchData['branch'] ?? null;
+
+                $sales = collect($branchData['users'] ?? [])
+                    ->map(function ($u) {
+                        $received = collect($u['customers_received'] ?? []);
+                        $given    = collect($u['customers_given'] ?? []);
+                        $returned = collect($u['customers_returned'] ?? []);
+
+                        return [
+                            'sales_name'          => $u['name'] ?? 'Tidak diketahui',
+                            // Angka utama = jumlah LAYANAN/TRANSAKSI yang diproses
+                            // (dihitung tiap kejadian, bukan di-dedup per customer).
+                            'orders_received'     => $u['orders_received'] ?? 0,
+                            'products_given_total'=> $u['products_given_total'] ?? 0,
+                            'returns_processed'   => $u['returns_processed'] ?? 0,
+                            // Jumlah customer unik, ditampilkan sebagai keterangan tambahan.
+                            'customers_received_count' => $received->count(),
+                            'customers_received'  => $received->values(),
+                            'customers_given_count'=> $given->count(),
+                            'customers_given'     => $given->values(),
+                            'customers_returned_count' => $returned->count(),
+                            'customers_returned'  => $returned->values(),
+                        ];
+                    })
+                    ->sortByDesc(fn($s) => $s['orders_received'] + $s['products_given_total'] + $s['returns_processed'])
+                    ->values();
+
+                return [
+                    'branch_name' => $branch->name ?? 'Cabang Tidak Diketahui',
+                    'branch_code' => $branch->code ?? '-',
+                    'sales'       => $sales,
+                ];
+            })
+            ->sortByDesc(fn($b) => $b['sales']->sum('orders_received') + $b['sales']->sum('products_given_total') + $b['sales']->sum('returns_processed'))
+            ->values();
     }
 
     // Basic weekly grouping placeholder — returns an empty structure keyed by YYYY-MM
