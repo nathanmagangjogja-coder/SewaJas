@@ -408,7 +408,6 @@
                                 <span class="text-xs" style="color:var(--text-soft)">
                                     {{ $branchData['sales']->count() }} sales ·
                                     {{ number_format($branchData['sales']->sum('orders_received')) }} pesanan diterima ·
-                                    {{ number_format($branchData['sales']->sum('products_given_total')) }} produk diserahkan ·
                                     {{ number_format($branchData['sales']->sum('returns_processed')) }} pengembalian
                                 </span>
                                 <i data-lucide="chevron-down" class="w-4 h-4 transition-transform"
@@ -419,10 +418,10 @@
                         <div x-show="openBranch === {{ $bi }}" x-transition class="border-t p-3 space-y-2" style="border-color:var(--border)">
                             @forelse ($branchData['sales'] as $si => $sales)
                                 <div class="rounded-lg p-3" style="background:var(--secondary)"
-                                     x-data="{ showReceived: false, showGiven: false, showReturned: false }">
+                                     x-data="{ showReceived: false, showReturned: false }">
                                     <p class="text-sm font-medium mb-2" style="color:var(--text-dark)">{{ $sales['sales_name'] }}</p>
 
-                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         {{-- Kategori 1: Menerima Pesanan --}}
                                         <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
                                             <div class="flex items-center justify-between gap-2">
@@ -453,37 +452,7 @@
                                             </div>
                                         </div>
 
-                                        {{-- Kategori 2: Memberikan Produk --}}
-                                        <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
-                                            <div class="flex items-center justify-between gap-2">
-                                                <div class="flex items-center gap-1.5">
-                                                    <i data-lucide="package-check" class="w-3.5 h-3.5" style="color:var(--color-emerald, #10B981)"></i>
-                                                    <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-soft)">Memberikan Produk</span>
-                                                </div>
-                                            </div>
-                                            <div class="flex items-end justify-between mt-1.5">
-                                                <div>
-                                                    <p class="text-2xl font-bold leading-none" style="color:var(--text-dark)">{{ number_format($sales['products_given_total']) }}
-                                                        <span class="text-xs font-normal" style="color:var(--text-soft)">kali serah</span></p>
-                                                    <p class="text-[11px] mt-1" style="color:var(--text-soft)">{{ number_format($sales['customers_given_count']) }} customer unik</p>
-                                                </div>
-                                                <button type="button" @click="showGiven = !showGiven"
-                                                        class="text-[11px] font-medium" style="color:var(--primary)">
-                                                    <span x-text="showGiven ? 'Tutup' : 'Lihat'"></span>
-                                                </button>
-                                            </div>
-                                            <div x-show="showGiven" x-transition class="mt-2 flex flex-wrap gap-1.5">
-                                                @forelse ($sales['customers_given'] as $cname)
-                                                    <span class="text-[11px] px-2 py-1 rounded-full" style="background:var(--bg-main); color:var(--text-dark); border:1px solid var(--border)">
-                                                        {{ $cname }}
-                                                    </span>
-                                                @empty
-                                                    <span class="text-xs" style="color:var(--text-soft)">Belum ada customer</span>
-                                                @endforelse
-                                            </div>
-                                        </div>
-
-                                        {{-- Kategori 3: Menerima Pengembalian --}}
+                                        {{-- Kategori 2: Menerima Pengembalian --}}
                                         <div class="rounded-lg p-2.5" style="background:var(--card); border:1px solid var(--border)">
                                             <div class="flex items-center justify-between gap-2">
                                                 <div class="flex items-center gap-1.5">
@@ -672,6 +641,6 @@
             }
         }).render();
 
-        lucide.createIcons(); 
+        lucide.createIcons(); // ✅ Pindah ke PALING BAWAH agar semua icon ter-render
     </script>
 @endpush
